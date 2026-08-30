@@ -1,0 +1,40 @@
+sequenceDiagram
+    autonumber
+    participant Browser as Next.js Client
+    participant KGW as KioskGateway /kiosk
+    participant LGW as LogsGateway /logs
+    participant KS as KioskService
+    participant CS as CheckinService
+    participant LS as LogStreamSink
+
+    rect rgb(240, 248, 255)
+        Note over Browser,CS: Kiosk namespace — dual display
+        Browser->>+KGW: connect /kiosk
+        Browser->>KGW: kiosk.join gateId
+        KGW->>KGW: join room gate:gateId
+        KGW->>CS: getDisplay gateId
+        CS-->>KGW: CheckinDisplay
+        KGW-->>Browser: checkin.display + ack
+
+        KS->>KGW: pushSession PublicSession
+        KGW->>Browser: session.update broadcast
+
+        CS->>KGW: CheckinDisplayUpdated
+        KGW->>Browser: checkin.display broadcast
+
+        Browser->>KGW: session.input sessionId source choice
+        KGW->>+KS: handleSessionInput
+        KS-->>-KGW: updated session
+        KGW-->>Browser: ack ok session
+    end
+
+    rect rgb(255, 248, 240)
+        Note over Browser,LS: Logs namespace — integration monitoring
+        Browser->>+LGW: connect /logs
+        Browser->>LGW: logs.subscribe integration all
+        LGW->>LS: getBacklog + onLine subscription
+        LGW->>Browser: logs.backlog lines
+
+        LS->>LGW: new integration log line
+        LGW->>Browser: logs.line append
+    end

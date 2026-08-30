@@ -1,0 +1,36 @@
+C4Container
+    title Container Diagram — Smart Gate Middleware
+
+    Person(driver, "Driver", "Uses QR kiosk or voice path")
+    Person(phone, "Driver phone", "Mobile check-in form")
+    Person(staff, "Staff", "Voice Console or QR Console")
+
+    System_Boundary(mw, "Smart Gate Middleware + Web") {
+        Container(kiosk_ui, "QR Kiosk UI", "Next.js :3001 /", "Large QR + Welcome name + status")
+        Container(voice_console, "Voice Console", "Next.js /console", "Avatar TTS/STT demo — Approach A")
+        Container(qr_console, "QR Console", "Next.js /console/qr", "Check-in URL/QR preview — Approach B")
+        Container(checkin_ui, "Check-in form", "Next.js /checkin", "Mobile plate name phone submit")
+        Container(logs_ui, "Integration Logs UI", "Next.js /logs", "Live tail of external API calls")
+        Container(nest, "NestJS API", "Node.js :3000", "Modules: LPR, SAP, Checkin, Kiosk, Queue, Gate, Notifications, STT, TTS, NLU")
+        Container(socket, "Socket.io Gateways", "WebSocket", "Namespaces: /kiosk, /logs")
+        ContainerDb(redis, "Redis", "Redis 7", "Sessions, check-in tickets, queue, TTS cache, audit, BullMQ")
+    }
+
+    System_Ext(ext, "External systems", "LPR, SAP, Gate, Slots, WhatsApp, ElevenLabs")
+
+    Rel(driver, kiosk_ui, "Scans QR on glass")
+    Rel(phone, checkin_ui, "Fills and submits form")
+    Rel(staff, voice_console, "Demo Approach A")
+    Rel(staff, qr_console, "Demo Approach B")
+    Rel(staff, logs_ui, "Monitors integrations")
+    Rel(kiosk_ui, nest, "REST: /checkin/display")
+    Rel(kiosk_ui, socket, "checkin.display", "WebSocket /kiosk")
+    Rel(checkin_ui, nest, "REST: /checkin/tickets, /checkin/submit")
+    Rel(voice_console, nest, "REST: /lpr, /demo, /session, /queue")
+    Rel(voice_console, socket, "session.update", "WebSocket /kiosk")
+    Rel(qr_console, nest, "REST: /lpr, /demo, /checkin, /queue")
+    Rel(qr_console, socket, "checkin.display", "WebSocket /kiosk")
+    Rel(logs_ui, socket, "Live log lines", "WebSocket /logs")
+    Rel(nest, redis, "Read/write live state")
+    Rel(nest, ext, "Adapter calls")
+    Rel(socket, nest, "Session input + display push")
