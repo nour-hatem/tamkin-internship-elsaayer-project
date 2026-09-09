@@ -17,6 +17,7 @@ const DEFAULTS = {
   ttsModel: 'eleven_v3',
   // ElevenLabs' long-standing public sample voice ("Rachel"). Not a secret.
   ttsVoiceId: '21m00Tcm4TlvDq8ikWAM',
+  ttsOutputFormat: 'mp3_44100_128',
   language: 'ar',
   sttTimeoutMs: 5_000,
   ttsTimeoutMs: 5_000,
@@ -68,15 +69,31 @@ export class AiConfigService {
   }
 
   get sttModel(): string {
-    return this.str('ELEVENLABS_STT_MODEL') ?? DEFAULTS.sttModel;
+    return (
+      this.str('ELEVENLABS_STT_MODEL_ID') ??
+      this.str('ELEVENLABS_STT_MODEL') ??
+      DEFAULTS.sttModel
+    );
   }
 
   get ttsModel(): string {
-    return this.str('ELEVENLABS_TTS_MODEL') ?? DEFAULTS.ttsModel;
+    return (
+      this.str('ELEVENLABS_TTS_MODEL_ID') ??
+      this.str('ELEVENLABS_TTS_MODEL') ??
+      DEFAULTS.ttsModel
+    );
   }
 
   get ttsVoiceId(): string {
-    return this.str('ELEVENLABS_VOICE_ID') ?? DEFAULTS.ttsVoiceId;
+    return (
+      this.str('ELEVENLABS_TTS_VOICE_ID') ??
+      this.str('ELEVENLABS_VOICE_ID') ??
+      DEFAULTS.ttsVoiceId
+    );
+  }
+
+  get ttsOutputFormat(): string {
+    return this.str('ELEVENLABS_TTS_OUTPUT_FORMAT') ?? DEFAULTS.ttsOutputFormat;
   }
 
   /**
@@ -135,6 +152,8 @@ export class AiConfigService {
       nluAdapter: this.nluAdapter,
       sttModel: this.sttModel,
       ttsModel: this.ttsModel,
+      ttsVoiceId: this.ttsVoiceId,
+      ttsOutputFormat: this.ttsOutputFormat,
       language: this.language,
       openRouterModel: this.openRouterModel,
       groqModel: this.groqModel,
