@@ -1,0 +1,29 @@
+{
+  "name": "toyota-kiosk-queue-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Internal MVP for Toyota Kiosk / Queue System (Ports & Adapters, Voice + QR convergence)",
+  "workspaces": [
+    "middleware",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run start:dev --workspace=middleware & npm run dev --workspace=web",
+    "dev:middleware": "npm run start:dev --workspace=middleware",
+    "dev:web": "npm run dev --workspace=web",
+    "build": "npm run build --workspace=middleware && npm run build --workspace=web",
+    "start": "npm run start --workspace=middleware",
+    "test": "npm run test --workspace=middleware",
+    "prisma:migrate": "npm run prisma:migrate --workspace=middleware",
+    "prisma:seed": "npm run prisma:seed --workspace=middleware",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}
