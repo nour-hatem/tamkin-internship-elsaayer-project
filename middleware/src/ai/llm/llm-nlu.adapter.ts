@@ -140,7 +140,7 @@ export class LlmNluAdapter implements INluAdapter {
           body: JSON.stringify({
             model: provider.model,
             temperature: 0,
-            max_tokens: 40,
+            max_tokens: 150,
             messages: [
               { role: 'system', content: SYSTEM_PROMPT },
               { role: 'user', content: normalized },
