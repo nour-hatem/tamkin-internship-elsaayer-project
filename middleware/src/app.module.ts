@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import * as path from 'path';
+
 import { CommonModule } from './common/common.module';
 import { HealthModule } from './health/health.module';
 import { LprModule } from './lpr/lpr.module';
@@ -15,7 +17,16 @@ import { AiModule } from './ai/ai.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath: [
+        path.resolve(process.cwd(), '.env.local'),
+        path.resolve(process.cwd(), '.env'),
+        path.resolve(process.cwd(), '../.env.local'),
+        path.resolve(process.cwd(), '../.env'),
+        path.resolve(__dirname, '../../.env.local'),
+        path.resolve(__dirname, '../../.env'),
+        path.resolve(__dirname, '../../../.env.local'),
+        path.resolve(__dirname, '../../../.env'),
+      ],
     }),
     CommonModule,
     HealthModule,
