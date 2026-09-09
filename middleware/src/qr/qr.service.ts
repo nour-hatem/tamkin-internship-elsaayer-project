@@ -4,15 +4,16 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-
-import { OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import { CheckInService } from '../checkin/checkin.service';
 import { EVENTS } from '../common/events';
 import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
-import { RedisService } from '../common/redis/redis.service';
 import { QrCheckinDto } from './dto/qr-checkin.dto';
-import { QrTicketRepository } from './repositories/qr-ticket.repository';
+import {
+  QrTicketData,
+  QrTicketRepository,
+} from './repositories/qr-ticket.repository';
 import { QrTokenService } from './qr-token.service';
 
 @Injectable()
@@ -22,62 +23,106 @@ export class QrService {
   constructor(
     private readonly configService: ConfigService,
     private readonly checkInService: CheckInService,
-    private readonly redisService: RedisService,
     private readonly qrTicketRepository: QrTicketRepository,
     private readonly qrTokenService: QrTokenService,
   ) {}
 
-  async createTicket() {
-  const token = this.qrTokenService.generate();
+  async createTicket(
+    gateId = 'gate-1',
+    data?: Partial<QrTicketData>,
+  ) {
+    const token = this.qrTokenService.generate();
 
-  await this.qrTicketRepository.create(token, {
-    gateId: 'gate-1',
-    plateLocked: false,
-    source: 'GENERIC',
-  });
+    const ticketData: QrTicketData = {
+      gateId,
+      plateLocked: data?.plateLocked ?? false,
+      source: data?.source ?? 'GENERIC',
+      plate: data?.plate,
+      name: data?.name,
+      phone: data?.phone,
+    };
 
-  const appUrl = this.configService.get<string>(
-    'APP_URL',
-    'http://localhost:3000',
-  );
+    // Store the ticket itself with its TTL.
+    await this.qrTicketRepository.create(token, ticketData);
 
-  return {
-    token,
-    checkInUrl: `${appUrl}/checkin?t=${token}`,
-    expiresIn: 180,
-  };
-}
+    // Make this ticket the current ticket displayed for the gate.
+    await this.qrTicketRepository.setCurrentTicket(gateId, token);
+
+    // Keep the latest plate available even after the ticket expires.
+    if (data?.plate) {
+      await this.qrTicketRepository.setPlateHint(gateId, data.plate);
+    }
+
+    const expiresIn = 180;
+
+    const expiresAt = new Date(
+      Date.now() + expiresIn * 1000,
+    ).toISOString();
+
+    const appUrl = this.configService.get<string>(
+      'APP_URL',
+      'http://localhost:3000',
+    );
+
+    const result = {
+      token,
+      gateId,
+      checkInUrl: `${appUrl}/checkin?gate=${gateId}&t=${token}`,
+      expiresIn,
+      expiresAt,
+      plate: ticketData.plate,
+      plateLocked: ticketData.plateLocked,
+      name: ticketData.name,
+      phone: ticketData.phone,
+      source: ticketData.source,
+    };
+
+    this.logger.log(
+      `[QrService] Current ticket created for gate ${gateId}: ${token} (${ticketData.source})`,
+    );
+
+    return result;
+  }
 
   async checkIn(dto: QrCheckinDto) {
-  const ticket = await this.qrTicketRepository.consume(dto.token);
+    const ticket = await this.qrTicketRepository.consume(dto.token);
 
-  if (!ticket) {
-    throw new GoneException(
-      'QR ticket is expired or has already been used',
-    );
+    if (!ticket) {
+      throw new GoneException(
+        'QR ticket is expired or has already been used',
+      );
+    }
+
+    if (ticket.plateLocked && ticket.plate !== dto.plate) {
+      throw new BadRequestException(
+        'Plate number does not match the QR ticket',
+      );
+    }
+
+    const plate =
+      ticket.plateLocked && ticket.plate
+        ? ticket.plate
+        : dto.plate;
+
+    return this.checkInService.submit({
+      gateId: ticket.gateId,
+      plate,
+      name: dto.name,
+      phone: dto.phone,
+      source: 'QR',
+    });
   }
 
-  if (ticket.plateLocked && ticket.plate !== dto.plate) {
-    throw new BadRequestException(
-      'Plate number does not match the QR ticket',
-    );
-  }
+  async getTicketStatus(token: string) {
+    const ticket = await this.qrTicketRepository.get(token);
 
-  return this.checkInService.submit({
-    gateId: ticket.gateId,
-    plate: ticket.plateLocked && ticket.plate ? ticket.plate : dto.plate,
-    name: dto.name,
-    phone: dto.phone,
-    source: 'QR',
-  });
-}
+    if (!ticket) {
+      throw new GoneException(
+        'QR ticket is expired or has already been used',
+      );
+    }
 
-  async getTicketStatus(ticketId: string) {
-    return {
-      ticketId,
-      status: 'ACTIVE',
-      message: 'QR Ticket status placeholder',
-    };
+    return ticket;
   }
 
   @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
@@ -94,16 +139,85 @@ export class QrService {
       return;
     }
 
+    if (!payload.gateId) {
+      this.logger.warn(
+        `[QrService] Ignoring SAP result for ${payload.plate} because gateId is missing`,
+      );
+      return;
+    }
+
+    /*
+     * CASE C
+     * LPR + SAP HIT
+     *
+     * Plate is known and trusted from SAP.
+     * Therefore the plate is locked on the mobile form.
+     * Name and phone are prefilled from SAP.
+     */
+    if (payload.found && payload.profile) {
+      const ticket = await this.createTicket(payload.gateId, {
+        plate: payload.plate,
+        plateLocked: true,
+        name: payload.profile.name,
+        phone: payload.profile.phone,
+        source: 'SAP',
+      });
+
+      this.logger.log(
+        `[QrService] CASE C - SAP HIT → QR ticket created for ${payload.plate}`,
+      );
+
+      return ticket;
+    }
+
+    /*
+     * CASE B
+     * LPR + SAP MISS
+     *
+     * We know the plate from LPR, but SAP does not know it.
+     * Therefore:
+     * - plate is prefilled
+     * - plate remains editable
+     * - name and phone are entered by the driver
+     */
+    const ticket = await this.createTicket(payload.gateId, {
+      plate: payload.plate,
+      plateLocked: false,
+      source: 'LPR',
+    });
+
     this.logger.log(
-      `[QrService] Processing active QR check-in for plate: ${payload.plate}`,
+      `[QrService] CASE B - SAP MISS → QR ticket created for ${payload.plate}`,
     );
 
-    await this.checkInService.submit({
-      gateId: 'gate-1',
-      plate: payload.plate,
-      name: payload.profile?.name || 'QR Customer',
-      phone: payload.profile?.phone || '+966500000000',
-      source: 'QR',
-    });
+    return ticket;
+  }
+    async getCurrentTicket(gateId: string): Promise<string | null> {
+    return this.qrTicketRepository.getCurrentTicket(gateId);
+  }
+
+  getPublicCheckInUrl(gateId: string, token: string): string {
+    const appUrl = this.configService.get<string>(
+      'APP_URL',
+      'http://localhost:3000',
+    );
+
+    return `${appUrl}/checkin?gate=${gateId}&t=${token}`;
+  }
+
+  async getTicketExpiresAt(token: string): Promise<string | null> {
+    const ticket = await this.qrTicketRepository.get(token);
+
+    if (!ticket) {
+      return null;
+    }
+
+    const ttl = await this.qrTicketRepository.getTtl(token);
+
+    if (ttl <= 0) {
+      return null;
+    }
+
+    return new Date(Date.now() + ttl * 1000).toISOString();
   }
 }

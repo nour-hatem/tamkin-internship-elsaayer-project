@@ -30,31 +30,64 @@ export class QrTicketRepository {
 
     return value ? JSON.parse(value) : null;
   }
-  
-async consume(token: string): Promise<QrTicketData | null> {
-  const key = `checkin:ticket:${token}`;
 
-  const script = `
-    local value = redis.call('GET', KEYS[1])
+  async consume(token: string): Promise<QrTicketData | null> {
+    const key = `checkin:ticket:${token}`;
 
-    if not value then
-      return nil
-    end
+    const script = `
+      local value = redis.call('GET', KEYS[1])
 
-    redis.call('DEL', KEYS[1])
+      if not value then
+        return nil
+      end
 
-    return value
-  `;
+      redis.call('DEL', KEYS[1])
 
-  const value = await this.redisService
-    .getClient()
-    .eval(script, 1, key);
+      return value
+    `;
 
-  return value ? JSON.parse(value as string) : null;
+    const value = await this.redisService
+      .getClient()
+      .eval(script, 1, key);
+
+    return value ? JSON.parse(value as string) : null;
   }
 
   async delete(token: string): Promise<void> {
     const key = `checkin:ticket:${token}`;
     await this.redisService.getClient().del(key);
+  }
+
+  async setCurrentTicket(gateId: string, token: string): Promise<void> {
+    const key = `checkin:gate:${gateId}`;
+
+    await this.redisService
+      .getClient()
+      .set(key, token);
+  }
+
+  async getCurrentTicket(gateId: string): Promise<string | null> {
+    const key = `checkin:gate:${gateId}`;
+
+    return this.redisService.getClient().get(key);
+  }
+
+  async setPlateHint(gateId: string, plate: string): Promise<void> {
+    const key = `checkin:gate:${gateId}:plate`;
+
+    await this.redisService
+      .getClient()
+      .set(key, plate);
+  }
+
+  async getPlateHint(gateId: string): Promise<string | null> {
+    const key = `checkin:gate:${gateId}:plate`;
+
+    return this.redisService.getClient().get(key);
+  }
+    async getTtl(token: string): Promise<number> {
+    const key = `checkin:ticket:${token}`;
+
+    return this.redisService.getClient().ttl(key);
   }
 }
