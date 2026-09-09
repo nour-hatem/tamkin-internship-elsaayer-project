@@ -1,0 +1,65 @@
+# Post-commit: auto-log to releases.md per .cursor/rules/release-logging.mdc
+# Appends newest entry at TOP under "# Releases". Leaves releases.md unstaged
+# (no auto-commit to avoid hook loops). Just commit it with your next change
+# or `git add releases.md && git commit --amend --no-edit` if you want it in this commit.
+
+HASH=$(git rev-parse --short HEAD)
+SUBJECT=$(git log -1 --pretty=%s)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "detached")
+WHEN=$(date "+%Y-%m-%d %H:%M")
+
+# Resolve GitHub username, fallback to git config
+USER_LOGIN=""
+if command -v gh >/dev/null 2>&1; then
+  USER_LOGIN=$(gh api user --jq '.login' 2>/dev/null || true)
+fi
+if [ -z "$USER_LOGIN" ]; then
+  USER_LOGIN=$(git config user.name 2>/dev/null || echo "unknown")
+fi
+case "$USER_LOGIN" in
+  @*) BY="$USER_LOGIN" ;;
+  *) BY="@$USER_LOGIN" ;;
+esac
+
+FILES=$(git show --pretty="" --name-only HEAD | grep -v '^$' | head -n 20)
+COUNT=$(git show --pretty="" --name-only HEAD | grep -vc '^$' || true)
+CHANGES=$(echo "$FILES" | sed 's/^/- /')
+if [ "$COUNT" -gt 20 ]; then
+  CHANGES="$CHANGES
+- ... and $((COUNT - 20)) more file(s)"
+fi
+
+if [ ! -f releases.md ]; then
+  printf '# Releases\n' > releases.md
+fi
+
+TMP_ENTRY=$(mktemp)
+TMP_BODY=$(mktemp)
+trap 'rm -f "$TMP_ENTRY" "$TMP_BODY"' EXIT INT TERM
+
+# Build entry body first (without leading blank line issues)
+{
+  echo "## [$WHEN] $SUBJECT"
+  echo ""
+  echo "**By:** $BY"
+  echo ""
+  echo "**Requested:** $SUBJECT (post-commit auto-log, branch \`$BRANCH\`, \`$HASH\`)"
+  echo ""
+  echo "**Changes:**"
+  echo "$CHANGES"
+  echo ""
+  echo "**Notes:** auto-logged by post-commit hook; amend or extend as needed."
+} > "$TMP_BODY"
+
+# Insert entry at top under "# Releases" header (newest first)
+{
+  head -n 1 releases.md
+  echo ""
+  cat "$TMP_BODY"
+  tail -n +2 releases.md
+} > "$TMP_ENTRY" && mv "$TMP_ENTRY" releases.md
+trap - EXIT INT TERM
+rm -f "$TMP_BODY"
+
+echo "post-commit: logged $HASH ($SUBJECT) to releases.md [branch: $BRANCH, by: $BY]"
+echo "post-commit: releases.md is unstaged — include it in your next commit."

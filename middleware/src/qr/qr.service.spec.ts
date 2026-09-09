@@ -2,6 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { QrService } from './qr.service';
 import { CheckInService } from '../checkin/checkin.service';
+import { RedisService } from '../common/redis/redis.service';
+import { QrTicketRepository } from './repositories/qr-ticket.repository';
+import { QrTokenService } from './qr-token.service';
 
 describe('QrService', () => {
   let service: QrService;
@@ -17,6 +20,18 @@ describe('QrService', () => {
         {
           provide: CheckInService,
           useValue: { submit: jest.fn().mockResolvedValue({}) },
+        },
+        {
+          provide: RedisService,
+          useValue: { get: jest.fn(), set: jest.fn() },
+        },
+        {
+          provide: QrTicketRepository,
+          useValue: { create: jest.fn(), consume: jest.fn() },
+        },
+        {
+          provide: QrTokenService,
+          useValue: { generate: jest.fn().mockReturnValue('test-token') },
         },
       ],
     }).compile();
