@@ -40,34 +40,29 @@ Both **Voice Kiosk (Sara)** and **QR Check-in (Rahma)** channels converge into a
 docker compose up -d
 ```
 
-### 3. Setup Backend Environment & Database
+### 3. Setup Unified Environment & Database
 ```bash
-cd middleware
+# At repository root:
 cp .env.example .env
 
 # Generate Prisma Client & Run Seed Data
-npm install
 npm run prisma:generate
 npm run prisma:seed
 ```
 
 *Note: Seed data inserts mock customers with plates: `ABC-1234`, `XYZ-9876`, `KSA-5555`, `TOY-2026`.*
 
-### 4. Start Backend Server
+### 4. Start Development (Full Stack)
 ```bash
 npm run dev
-# Running on http://localhost:3001
-# Health Check endpoint: http://localhost:3001/health
+# Backend running on http://localhost:3001 (Health Check: http://localhost:3001/health)
+# Frontend running on http://localhost:3000 (Developer Console: http://localhost:3000/console)
 ```
 
-### 5. Start Frontend Next.js Client
+Or start individually:
 ```bash
-cd ../web
-cp .env.example .env.local
-npm install
-npm run dev
-# Running on http://localhost:3000
-# Developer Console: http://localhost:3000/console
+npm run dev:middleware   # Backend NestJS on :3001
+npm run dev:web          # Frontend Next.js on :3000
 ```
 
 ---
