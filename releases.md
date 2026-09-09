@@ -1,5 +1,16 @@
 # Releases
 
+## [2026-09-09 22:57] docs: add releases.md auto-logged by post-commit hook
+
+**By:** @MahmoudMater
+
+**Requested:** docs: add releases.md auto-logged by post-commit hook (post-commit auto-log, branch `dev`, `c615048`)
+
+**Changes:**
+- releases.md
+
+**Notes:** auto-logged by post-commit hook; amend or extend as needed.
+
 ## [2026-09-09 22:57] chore(hooks): add husky pre-commit and post-commit with release logging
 
 **By:** @MahmoudMater
