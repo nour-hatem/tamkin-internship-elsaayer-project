@@ -28,20 +28,25 @@ export class QrService {
   ) {}
 
   async createTicket() {
-    const token = this.qrTokenService.generate();
+  const token = this.qrTokenService.generate();
 
-    await this.qrTicketRepository.create(token, {
-      gateId: 'gate-1',
-      plateLocked: false,
-      source: 'GENERIC',
-    });
+  await this.qrTicketRepository.create(token, {
+    gateId: 'gate-1',
+    plateLocked: false,
+    source: 'GENERIC',
+  });
 
-    return {
-      token,
-      checkInUrl: `http://localhost:3000/checkin?t=${token}`,
-      expiresIn: 180,
-    };
-  }
+  const appUrl = this.configService.get<string>(
+    'APP_URL',
+    'http://localhost:3000',
+  );
+
+  return {
+    token,
+    checkInUrl: `${appUrl}/checkin?t=${token}`,
+    expiresIn: 180,
+  };
+}
 
   async checkIn(dto: QrCheckinDto) {
   const ticket = await this.qrTicketRepository.consume(dto.token);
