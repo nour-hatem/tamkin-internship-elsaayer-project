@@ -34,9 +34,10 @@ export class ElevenLabsTtsAdapter implements ITtsAdapter {
 
     const voiceId = this.config.ttsVoiceId;
     const lang = this.config.language;
+    const outputFormat = this.config.ttsOutputFormat;
     const url =
       `${this.config.elevenLabsBaseUrl}/v1/text-to-speech/${encodeURIComponent(voiceId)}` +
-      `?output_format=mp3_44100_128`;
+      `?output_format=${encodeURIComponent(outputFormat)}`;
     const timeoutMs = this.config.ttsTimeoutMs;
 
     let response: Response;
