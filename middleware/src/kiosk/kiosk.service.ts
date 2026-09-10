@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { CheckInService } from '../checkin/checkin.service';
 import { EVENTS } from '../common/events';
 import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
+import { SessionService } from './session.service';
 
 export type VoiceState = 'IDLE' | 'GREETING' | 'CONFIRMING_CUSTOMER' | 'CHECKING_IN' | 'COMPLETED';
 
@@ -15,6 +16,7 @@ export class KioskService {
   constructor(
     private readonly configService: ConfigService,
     private readonly checkInService: CheckInService,
+    private readonly sessionService: SessionService
   ) {}
 
   getState(): KioskStateEnum {
@@ -30,6 +32,20 @@ export class KioskService {
     }
 
     this.logger.log(`[KioskService] Processing active Voice kiosk state for plate: ${payload.plate}`);
+
+   const session = await this.sessionService.createSession({
+  gateId: payload.gateId,
+  plateNo: payload.plate,
+  customerName: payload.found ? payload.profile?.name ?? null : null,
+  phone: payload.found ? payload.profile?.phone ?? null : null,
+  currentState: payload.found
+    ? KioskStateEnum.GREETING
+    : KioskStateEnum.DATA_ASKING,
+});
+
+this.logger.log(
+  `[KioskService] Session created: ${session.sessionId}`,
+);
     // this.currentState = 'GREETING';
 
     // Auto trigger check-in submission for Voice flow baseline (Sara's state machine will expand this)
