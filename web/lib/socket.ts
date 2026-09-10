@@ -40,6 +40,21 @@ export function joinGateRoom(gateId: string): void {
   }
 }
 
+export function subscribeToCheckinDisplay(
+  callback: (data: {
+    gateId: string;
+    token: string;
+    timestamp: string;
+  }) => void,
+): () => void {
+  const s = getSocket();
+
+  s.on('checkin.display', callback);
+
+  return () => {
+    s.off('checkin.display', callback);
+  };
+}
 export function subscribeToSapResult(callback: (data: any) => void): () => void {
   const s = getSocket();
   s.on('sap.result', callback);
