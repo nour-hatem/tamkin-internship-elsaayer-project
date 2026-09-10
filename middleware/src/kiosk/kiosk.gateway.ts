@@ -14,7 +14,16 @@ import { ConfigService } from '@nestjs/config';
 import { EVENTS } from '../common/events';
 import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
 import { CheckInResultDto } from '../common/dtos/checkin-result.dto';
+import { KioskStateEnum } from './enum/VoiceStateEnum';
 
+
+type SendGreetingDTO={
+  sessionId:string,
+  state:KioskStateEnum,
+  message:string,
+  audio:Buffer,
+  gateId:string
+}
 @WebSocketGateway({
   cors: {
     origin: '*',
@@ -59,12 +68,19 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { event: 'kiosk.joined', gateId };
   }
 
-  @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
-  handleSapLookup(payload: SapLookupResultDto) {
-    this.logger.log(`Broadcasting SAP result to gate rooms for plate: ${payload.plate}`);
-    // Broadcast to all connected gate rooms
-    this.server.emit('sap.result', payload);
-  }
+  // @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
+  // handleSapLookup(payload: SapLookupResultDto) {
+  //   this.logger.log(`Broadcasting SAP result to gate rooms for plate: ${payload.plate}`);
+  //   // Broadcast to all connected gate rooms
+  //   this.server.emit('sap.result', payload);
+  // }
+
+  sendGreeting(sendGreeting:SendGreetingDTO){
+    const room=sendGreeting.gateId
+    this.server.to(room).emit("SEND_GREETING",sendGreeting)
+  } 
+
+
 
   @OnEvent(EVENTS.CHECKIN_COMPLETED)
   handleCheckInCompleted(payload: CheckInResultDto) {

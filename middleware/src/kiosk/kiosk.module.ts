@@ -5,10 +5,14 @@ import { SessionRepository } from './session.repository';
 import { SessionService } from './session.service';
 import { CheckInModule } from '../checkin/checkin.module';
 import { RedisModule } from '../common/redis/redis.module';
+import { AiModule, ElevenLabsTtsAdapter } from 'src/ai';
 
 @Module({
-  imports: [CheckInModule, RedisModule],
-  providers: [KioskService, KioskGateway, SessionRepository, SessionService],
+  imports: [CheckInModule, RedisModule,AiModule],
+  providers: [KioskService, KioskGateway, SessionRepository, SessionService,{
+      provide: 'ITtsAdapter', 
+      useClass: ElevenLabsTtsAdapter,
+    },],
   exports: [KioskService, SessionRepository, SessionService],
 })
 export class KioskModule {}

@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { SessionRepository } from './session.repository';
 import { KioskSession, CreateSessionDto } from './interfaces/kiosk-session.interface';
-//import { KioskStateEnum } from './enum/VoiceStateEnum';
+import { KioskStateEnum } from './enum/VoiceStateEnum';
 
 @Injectable()
 export class SessionService {

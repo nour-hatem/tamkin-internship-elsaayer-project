@@ -1,4 +1,4 @@
-enum KioskStateEnum {
+export enum KioskStateEnum {
   IDLE='IDLE',  
   GREETING = 'GREETING',
   CONFIRMING_PHONE = 'CONFIRMING_PHONE',

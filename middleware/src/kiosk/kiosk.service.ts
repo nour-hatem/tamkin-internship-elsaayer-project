@@ -1,10 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { CheckInService } from '../checkin/checkin.service';
 import { EVENTS } from '../common/events';
 import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
 import { SessionService } from './session.service';
+import { KioskGateway } from './kiosk.gateway';
+import { ElevenLabsTtsAdapter, ITtsAdapter } from 'src/ai';
+import { KioskStateEnum } from './enum/VoiceStateEnum';
 
 export type VoiceState = 'IDLE' | 'GREETING' | 'CONFIRMING_CUSTOMER' | 'CHECKING_IN' | 'COMPLETED';
 
@@ -16,7 +19,9 @@ export class KioskService {
   constructor(
     private readonly configService: ConfigService,
     private readonly checkInService: CheckInService,
-    private readonly sessionService: SessionService
+    private readonly sessionService: SessionService,
+    private readonly kioskGateway:KioskGateway,
+    @Inject('ITtsAdapter')private readonly ttsAdapter:ITtsAdapter
   ) {}
 
   getState(): KioskStateEnum {
@@ -42,10 +47,17 @@ export class KioskService {
     ? KioskStateEnum.GREETING
     : KioskStateEnum.DATA_ASKING,
 });
+ 
+await this.Greeting(session)
+
+
 
 this.logger.log(
   `[KioskService] Session created: ${session.sessionId}`,
 );
+
+
+
     // this.currentState = 'GREETING';
 
     // Auto trigger check-in submission for Voice flow baseline (Sara's state machine will expand this)
@@ -59,4 +71,18 @@ this.logger.log(
 
     // this.currentState = 'COMPLETED';
   }
+
+
+Greeting=async(session)=>{
+const audio = await this.ttsAdapter.synthesize(`أهلاً بك ${session.customerName} رقمك هو ${session.phone} فقط قل نعم او لا`);
+
+  this.kioskGateway.sendGreeting({
+    sessionId: session.sessionId,
+    state: KioskStateEnum.GREETING,
+    message:`أهلاً بك ${session.customerName} رقمك هو ${session.phone} فقط قل نعم او لا`,
+    audio,
+    gateId:session.gateId
+  });
 }
+}
+
