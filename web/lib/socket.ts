@@ -56,6 +56,7 @@ export function subscribeToGateState(callback: (data: any) => void): () => void 
   };
 }
 
+
 export function subscribeToKioskState(callback: (data: any) => void): () => void {
   const s = getSocket();
   s.on('kiosk.state', callback);
@@ -63,3 +64,14 @@ export function subscribeToKioskState(callback: (data: any) => void): () => void
     s.off('kiosk.state', callback);
   };
 }
+
+export function subscribeToSendGreeting(callback: (data: any) => void): () => void {
+  const s = getSocket();
+  s.on('SEND_GREETING', callback);
+  return () => {
+    s.off('SEND_GREETING', callback);
+  };
+}
+
+
+
