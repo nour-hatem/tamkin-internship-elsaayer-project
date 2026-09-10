@@ -25,5 +25,8 @@
   },
   "devDependencies": {
     "prettier": "^3.3.3"
+  },
+  "dependencies": {
+    "ioredis": "^6.0.0"
   }
 }
