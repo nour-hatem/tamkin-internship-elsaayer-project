@@ -15,9 +15,9 @@ import { EVENTS } from '../common/events';
 import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
 import { CheckInResultDto } from '../common/dtos/checkin-result.dto';
 import { KioskStateEnum } from './enum/VoiceStateEnum';
-import { ConfirmingPhoneDto } from './interfaces/ConfirmingPhoneDto';
 import { KioskService } from './kiosk.service';
-import { AskingPhoneDto } from './interfaces/AskingPhoneDto';
+import { KioskOutputDto} from './interfaces/KioskOutputDto';
+import { KioskInputDto } from './interfaces/KioskInputDto';
 
 
 type SendGreetingDTO={
@@ -94,34 +94,28 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
   //   this.server.emit('sap.result', payload);
   // }
 
-
-sendGreeting(payload: SendGreetingDTO) {
-  const roomName = `gate:${payload.gateId}`;
-  this.logger.log(`[KioskGateway] EMITTING SEND_GREETING to room: ${roomName} (gateId: ${payload.gateId})`);
-  this.server.to(roomName).emit('SEND_GREETING', payload);
-}
-
-
   @OnEvent(EVENTS.CHECKIN_COMPLETED)
   handleCheckInCompleted(payload: CheckInResultDto) {
     this.logger.log(`Broadcasting Gate/Check-in state update: opened=${payload.gateOpened}`);
     this.server.emit('gate.state', payload);
   }
 
-@SubscribeMessage('confirming.phone')
-handleConfirmingPhone(
-  @MessageBody() payload: ConfirmingPhoneDto,
+  @SubscribeMessage('INPUT')
+handleInput(
+  @MessageBody() payload: KioskInputDto,
 ) {
-  this.eventEmitter.emit(
-    EVENTS.CONFIRMING_PHONE,
-    payload,
-  );
+  this.eventEmitter.emit(EVENTS.KIOSK_INPUT, payload);
 }
 
-@OnEvent(EVENTS.ASKING_ABOUT_PHONE)
-handleAskingPhone(payload:AskingPhoneDto){
-const roomName = `gate:${payload.gateId}`;
-  this.logger.log(`[KioskGateway] EMITTING ASKING_ABOUT_PHONE to room: ${roomName} (gateId: ${payload.gateId})`);
-  this.server.to(roomName).emit('ASKING_ABOUT_PHONE', payload);
+sendOutput(payload: KioskOutputDto) {
+  const roomName = `gate:${payload.gateId}`;
+
+  this.logger.log(
+    `[KioskGateway] OUTPUT -> ${roomName}, state=${payload.state}`,
+  );
+
+  this.server.to(roomName).emit('OUTPUT', payload);
 }
+
+
 }
