@@ -208,7 +208,7 @@ function KioskPageContent() {
         '[Kiosk] Cannot start recording: sessionId is missing',
       );
 
-      setState('idle');
+      setIdle();
       return;
     }
 
@@ -219,7 +219,7 @@ function KioskPageContent() {
         '[Kiosk] Cannot start recording: session state is missing',
       );
 
-      setState('idle');
+      setIdle();
       return;
     }
 
@@ -378,7 +378,7 @@ function KioskPageContent() {
 
         // The kiosk is no longer listening.
         // It is now waiting for the backend response.
-        setState('idle');
+        setIdle();
 
         cleanupRecording();
 
@@ -389,7 +389,7 @@ function KioskPageContent() {
             '[Kiosk] No audio chunks were recorded.',
           );
 
-          setState('idle');
+          setIdle();
           return;
         }
 
@@ -411,7 +411,7 @@ function KioskPageContent() {
               '[Kiosk] Cannot emit INPUT: sessionId is missing.',
             );
 
-            setState('idle');
+            setIdle();
             return;
           }
 
@@ -423,7 +423,7 @@ function KioskPageContent() {
               '[Kiosk] Cannot emit INPUT: session state is missing.',
             );
 
-            setState('idle');
+            setIdle();
             return;
           }
 
@@ -468,7 +468,7 @@ function KioskPageContent() {
             error,
           );
 
-          setState('idle');
+          setIdle();
         }
       };
 
@@ -484,7 +484,7 @@ function KioskPageContent() {
 
         mediaRecorderRef.current = null;
 
-        setState('idle');
+        setIdle();
       };
 
       // ----------------------------------------------------------
@@ -544,7 +544,7 @@ function KioskPageContent() {
       mediaRecorderRef.current = null;
 
       setIsRecording(false);
-      setState('idle');
+      setIdle();
     }
   };
 
@@ -623,7 +623,7 @@ function KioskPageContent() {
     setShowNameInput(false);
     setNameInput('');
 
-    setState('idle');
+    setIdle();
   };
 
   // ------------------------------------------------------------
@@ -669,7 +669,7 @@ function KioskPageContent() {
     setShowPhoneInput(false);
     setPhoneInput('');
 
-    setState('idle');
+    setIdle();
   };
 
   // ------------------------------------------------------------
@@ -708,8 +708,16 @@ function KioskPageContent() {
     // while waiting for the backend's next OUTPUT.
     setShowConfirmationButtons(false);
 
-    setState('idle');
+    setIdle();
   };
+
+  //-------------------------------------------------------------
+  //Set Idle function
+  //-------------------------------------------------------------
+const setIdle = () => {
+  setState('idle');
+  setMessage('');
+};
 
   // ------------------------------------------------------------
   // Backend OUTPUT listener
@@ -853,7 +861,7 @@ function KioskPageContent() {
             setState('listening');
             startRecording();
           } else {
-            setState('idle');
+            setIdle();
           }
 
           return;
@@ -952,7 +960,7 @@ function KioskPageContent() {
               setState('listening');
               startRecording();
             } else {
-              setState('idle');
+              setIdle();
             }
 
             return;
@@ -1019,7 +1027,7 @@ function KioskPageContent() {
             cleanupAudio();
 
             if (textInputStateRef.current) {
-              setState('idle');
+              setIdle();
               return;
             }
 
@@ -1040,7 +1048,7 @@ function KioskPageContent() {
             cleanupAudio();
 
             if (textInputStateRef.current) {
-              setState('idle');
+              setIdle();
               return;
             }
 
@@ -1066,7 +1074,7 @@ function KioskPageContent() {
           cleanupAudio();
 
           if (textInputStateRef.current) {
-            setState('idle');
+            setIdle();
             return;
           }
 
