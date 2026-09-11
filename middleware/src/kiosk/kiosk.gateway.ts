@@ -8,13 +8,15 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { forwardRef, Inject, Logger } from '@nestjs/common';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { EVENTS } from '../common/events';
 import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
 import { CheckInResultDto } from '../common/dtos/checkin-result.dto';
 import { KioskStateEnum } from './enum/VoiceStateEnum';
+import { ConfirmingPhoneDto } from './interfaces/ConfirmingPhoneDto';
+import { KioskService } from './kiosk.service';
 
 
 type SendGreetingDTO={
@@ -35,7 +37,10 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(KioskGateway.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService,
+   @Inject(forwardRef(() => KioskService)) private readonly kioskService:KioskService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Socket client connected: ${client.id}`);
@@ -101,4 +106,14 @@ sendGreeting(payload: SendGreetingDTO) {
     this.logger.log(`Broadcasting Gate/Check-in state update: opened=${payload.gateOpened}`);
     this.server.emit('gate.state', payload);
   }
+
+@SubscribeMessage('confirming.phone')
+handleConfirmingPhone(
+  @MessageBody() payload: ConfirmingPhoneDto,
+) {
+  this.eventEmitter.emit(
+    EVENTS.CONFIRMING_PHONE,
+    payload,
+  );
+}
 }

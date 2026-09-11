@@ -16,7 +16,7 @@
     "test": "npm run test --workspace=middleware",
     "prisma:generate": "prisma generate --schema=middleware/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema=middleware/prisma/schema.prisma",
-    "prisma:seed": "ts-node -r dotenv/config middleware/prisma/seed.ts",
+    "prisma:seed": "ts-node -r dotenv/config middleware/prisma/seed.ts dotenv_config_path=middleware/.env",
     "prisma:studio": "prisma studio --schema=middleware/prisma/schema.prisma",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
@@ -29,6 +29,7 @@
     "prettier": "^3.3.3"
   },
   "dependencies": {
+    "eventemitter": "^0.3.3",
     "ioredis": "^6.0.0"
   }
 }

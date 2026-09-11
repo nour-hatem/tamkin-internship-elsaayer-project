@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { CheckInService } from '../checkin/checkin.service';
@@ -6,8 +6,10 @@ import { EVENTS } from '../common/events';
 import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
 import { SessionService } from './session.service';
 import { KioskGateway } from './kiosk.gateway';
-import { ElevenLabsTtsAdapter, ITtsAdapter } from 'src/ai';
+import { ElevenLabsTtsAdapter, INluAdapter, ISttAdapter, ITtsAdapter, NluRulesAdapter } from 'src/ai';
 import { KioskStateEnum } from './enum/VoiceStateEnum';
+import { ConfirmingPhoneDto } from './interfaces/ConfirmingPhoneDto';
+import { KioskSession } from './interfaces/kiosk-session.interface';
 
 export type VoiceState = 'IDLE' | 'GREETING' | 'CONFIRMING_CUSTOMER' | 'CHECKING_IN' | 'COMPLETED';
 
@@ -20,8 +22,10 @@ export class KioskService {
     private readonly configService: ConfigService,
     private readonly checkInService: CheckInService,
     private readonly sessionService: SessionService,
-    private readonly kioskGateway:KioskGateway,
-    @Inject('ITtsAdapter')private readonly ttsAdapter:ITtsAdapter
+    @Inject(forwardRef(() => KioskGateway))private readonly kioskGateway:KioskGateway,
+    @Inject('ITtsAdapter')private readonly ttsAdapter:ITtsAdapter,
+    @Inject('ISttAdapter')private readonly sttAdapter:ISttAdapter,
+    @Inject('INluAdapter')private readonly nluAdapter:INluAdapter
   ) {}
 
   getState(): KioskStateEnum {
@@ -48,17 +52,12 @@ export class KioskService {
     : KioskStateEnum.DATA_ASKING,
 });
  
-await this.Greeting(session)
-
-
-
 this.logger.log(
   `[KioskService] Session created: ${session.sessionId}`,
 );
+await this.Greeting(session)
 
-
-
-    // this.currentState = 'GREETING';
+// this.currentState = 'GREETING';
 
     // Auto trigger check-in submission for Voice flow baseline (Sara's state machine will expand this)
     // await this.checkInService.submit({
@@ -71,21 +70,43 @@ this.logger.log(
 
     // this.currentState = 'COMPLETED';
   }
+@OnEvent(EVENTS.CONFIRMING_PHONE)
+async handleConfirmingPhone(payload: ConfirmingPhoneDto) {
+  // 1. STT
+  const transcript = await this.sttAdapter.transcribe(payload.audio);
+
+  // 2. NLU
+  const result = await this.nluAdapter.parse(transcript);
+
+  this.logger.log('[KioskService] Transcript:', transcript);
+  this.logger.log('[KioskService] NLU result:', result);
+
+  // 3. Decide based on intent
+  if (result.intent === 'YES') {
+    // open gate
+  }
+
+  if (result.intent === 'NO') {
+    // move to PHONE_ASKING
+  }
+}
 
 
-Greeting=async(session)=>{
+Greeting=async(session:KioskSession)=>{
 const audio = await this.ttsAdapter.synthesize(`أهلاً بك ${session.customerName} رقمك هو ${session.phone} فقط قل نعم او لا`);
 //this.logger.log('TTS audio size:', audio.length, 'bytes');
-  this.kioskGateway.sendGreeting({
+    this.kioskGateway.sendGreeting({
     sessionId: session.sessionId,
     state: KioskStateEnum.GREETING,
     message:`أهلاً بك ${session.customerName} رقمك هو ${session.phone} فقط قل نعم او لا`,
     audio,
     gateId:session.gateId
   });
-  console.log('[KioskService] About to send greeting');
-console.log('[KioskService] gateId:', session.gateId);
-console.log('[KioskService] sessionId:', session.sessionId);
+//   console.log('[KioskService] About to send greeting');
+// console.log('[KioskService] gateId:', session.gateId);
+// console.log('[KioskService] sessionId:', session.sessionId);
 }
+
+
 }
 

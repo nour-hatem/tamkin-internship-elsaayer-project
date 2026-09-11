@@ -5,15 +5,24 @@ import { SessionRepository } from './session.repository';
 import { SessionService } from './session.service';
 import { CheckInModule } from '../checkin/checkin.module';
 import { RedisModule } from '../common/redis/redis.module';
-import { AiModule, ElevenLabsTtsAdapter, StubTtsAdapter } from 'src/ai';
+import { AiModule, ElevenLabsSttAdapter, ElevenLabsTtsAdapter, NluRulesAdapter, StubTtsAdapter } from 'src/ai';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
-  imports: [CheckInModule, RedisModule,AiModule],
+  imports: [CheckInModule, RedisModule,AiModule,ConfigModule],
   providers: [KioskService, KioskGateway, SessionRepository, SessionService,{
       provide: 'ITtsAdapter', 
-      //useClass: ElevenLabsTtsAdapter,
-      useClass:StubTtsAdapter
-    },],
+      useClass: ElevenLabsTtsAdapter,
+      //useClass:StubTtsAdapter
+    },{
+      provide: 'ISttAdapter', 
+      useClass: ElevenLabsSttAdapter,
+    },{
+      provide:'INluAdapter',
+      useClass:NluRulesAdapter
+
+    }
+  ],
   exports: [KioskService, SessionRepository, SessionService],
 })
 export class KioskModule {}
