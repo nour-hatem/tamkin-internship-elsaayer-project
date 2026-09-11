@@ -5,6 +5,8 @@ export interface KioskSession {
   customerName: string;
   phone: string;
   currentState: string;
+  confirmationRetries: number;
+  phoneRetries: number;
 }
 
 export type CreateSessionDto = Omit<KioskSession, 'sessionId' | 'currentState'> & {

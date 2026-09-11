@@ -1,3 +1,5 @@
+
+import { inputModeEnum } from "../enum/InputModeEnum";
 import { KioskStateEnum } from "../enum/VoiceStateEnum";
 
 export interface KioskOutputDto {
@@ -6,4 +8,5 @@ export interface KioskOutputDto {
   state: KioskStateEnum;
   message: string;
   audio: Buffer;
+  inputMode: inputModeEnum
 }
