@@ -118,3 +118,25 @@ The TTS provider remains replaceable through the adapter interface, allowing the
 **Voice Flow Update:**
 
 LPR → SAP Lookup → Kiosk Session → Greeting → Customer Confirmation → STT → NLU → Negative Response → Ask for Phone Number → Frontend
+
+## [2026-09-11] Refactor Kiosk Communication to Generic INPUT/OUTPUT Events
+
+- Replaced specific Socket.IO kiosk events with two generic transport events:
+  - `INPUT` for frontend → backend communication.
+  - `OUTPUT` for backend → frontend communication.
+- Added `KioskInputDto` and `KioskOutputDto` for the new communication structure.
+- Updated `KioskGateway` to act as a transport layer:
+  - Receives `INPUT` and publishes the internal `KIOSK_INPUT` event.
+  - Sends backend responses through the generic `OUTPUT` event.
+- Updated `KioskService` to process kiosk input based on the current session state stored in Redis.
+- Removed the previous `CONFIRMING_PHONE` Socket.IO handler and specific `SEND_GREETING` / `ASKING_ABOUT_PHONE` socket events.
+- Updated the voice confirmation flow:
+  - SAP lookup → create kiosk session → greeting → `CONFIRMING_PHONE`.
+  - Customer audio → `INPUT` → STT → NLU → process YES/NO.
+  - NO response → update session to `PHONE_ASKING` → `OUTPUT`.
+- Session state is now the backend source of truth for determining how incoming kiosk input should be processed.
+- Removed the KioskService-level global state in favor of per-session state.
+
+### Next
+- Update the frontend to consume `OUTPUT` and send `INPUT`.
+- Implement phone-number input handling and continue the check-in flow.

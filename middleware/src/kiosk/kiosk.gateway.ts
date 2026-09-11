@@ -39,7 +39,6 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(KioskGateway.name);
 
   constructor(private readonly configService: ConfigService,
-   @Inject(forwardRef(() => KioskService)) private readonly kioskService:KioskService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
