@@ -86,12 +86,12 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { event: 'kiosk.joined', gateId };
   }
 
-  // @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
-  // handleSapLookup(payload: SapLookupResultDto) {
-  //   this.logger.log(`Broadcasting SAP result to gate rooms for plate: ${payload.plate}`);
-  //   // Broadcast to all connected gate rooms
-  //   this.server.emit('sap.result', payload);
-  // }
+  @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
+  handleSapLookup(payload: SapLookupResultDto) {
+    this.logger.log(`Broadcasting SAP result to gate rooms for plate: ${payload.plate}`);
+    // Broadcast to all connected gate rooms
+    this.server.emit('sap.result', payload);
+  }
 
   @OnEvent(EVENTS.CHECKIN_COMPLETED)
   handleCheckInCompleted(payload: CheckInResultDto) {

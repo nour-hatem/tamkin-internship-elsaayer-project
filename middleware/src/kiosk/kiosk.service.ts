@@ -18,6 +18,7 @@ import {
 import { KioskSession } from './interfaces/kiosk-session.interface';
 import { KioskInputDto } from './interfaces/KioskInputDto';
 import { ISapAdapter } from 'src/sap/ports/sap.port';
+import { IGateAdapter } from 'src/gate/ports/gate.port';
 
 @Injectable()
 export class KioskService {
@@ -34,9 +35,10 @@ export class KioskService {
     private readonly sttAdapter: ISttAdapter,
     @Inject('INluAdapter')
     private readonly nluAdapter: INluAdapter,
-    private readonly eventEmitter: EventEmitter2,
-    //private readonly sapAdapter:ISapAdapter
-  ) {}
+    @Inject('IGateAdapter')
+  private readonly gateAdapter: IGateAdapter,
+  private readonly eventEmitter: EventEmitter2,
+      ) {}
 
   /**
    * Starts the kiosk flow after SAP finishes looking up the plate.
@@ -158,13 +160,60 @@ export class KioskService {
     );
 
     // 3. Customer confirmed the phone number.
-    if (result.intent === 'YES') {
-      // TODO:
-      // Update session state.
-      // Continue check-in.
-      // Open gate.
-      return;
-    }
+if (result.intent === 'YES') {
+  this.logger.log(
+    `[KioskService] Customer confirmed phone for session ${session.sessionId}`,
+  );
+
+  await this.sessionService.updateSession(
+    session.sessionId,
+    {
+      currentState: KioskStateEnum.CHECKING_IN,
+    },
+  );
+
+  try {
+    await this.gateAdapter.openGate(session.gateId);
+
+    this.logger.log(
+      `[KioskService] Gate ${session.gateId} opened successfully`,
+    );
+
+    await this.sessionService.updateSession(
+      session.sessionId,
+      {
+        currentState: KioskStateEnum.COMPLETED,
+      },
+    );
+
+    this.eventEmitter.emit(
+      EVENTS.CHECKIN_COMPLETED,
+      {
+        sessionId: session.sessionId,
+        gateId: session.gateId,
+        gateOpened: true,
+      },
+    );
+  } catch (error) {
+    this.logger.error(
+      `[KioskService] Failed to open gate ${session.gateId}`,
+      error,
+    );
+
+    // Keep the session in CHECKING_IN for now.
+    // We can define the failure/retry behavior separately.
+    this.eventEmitter.emit(
+      EVENTS.CHECKIN_COMPLETED,
+      {
+        sessionId: session.sessionId,
+        gateId: session.gateId,
+        gateOpened: false,
+      },
+    );
+  }
+
+  return;
+}
 
     // 4. Customer rejected the phone number.
     if (result.intent === 'NO') {
@@ -278,7 +327,6 @@ export class KioskService {
 
   // 6. Continue to the next check-in step.
  // await this.continueCheckIn(session, phone);
-
   }
 
   /**

@@ -8,6 +8,7 @@ import { RedisModule } from '../common/redis/redis.module';
 import { AiModule, ElevenLabsSttAdapter, ElevenLabsTtsAdapter, NluRulesAdapter, StubTtsAdapter } from 'src/ai';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypedEventEmitter } from '@common/typed-event-emitter.service';
+import { StubGateAdapter } from 'src/gate/adapters/stub-gate.adapter';
 
 @Module({
   imports: [CheckInModule, RedisModule,AiModule,ConfigModule],
@@ -21,6 +22,9 @@ import { TypedEventEmitter } from '@common/typed-event-emitter.service';
     },{
       provide:'INluAdapter',
       useClass:NluRulesAdapter
+    },{
+      provide:'IGateAdapter',
+      useClass:StubGateAdapter
     },
     TypedEventEmitter
   ],
