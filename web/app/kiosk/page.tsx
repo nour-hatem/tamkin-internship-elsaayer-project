@@ -13,6 +13,24 @@ import { KioskAvatar } from '@/components/KioskAvatar';
 
 type AvatarState = 'idle' | 'talking' | 'listening';
 
+// ------------------------------------------------------------
+// Backend-driven input mode.
+//
+// The backend is the source of truth for which input method
+// the kiosk should currently show. The frontend never infers
+// this from retry counts or state history — it only renders
+// whatever `inputMode` arrives on the OUTPUT payload.
+// ------------------------------------------------------------
+type InputMode = 'VOICE' | 'BUTTONS' | 'TEXT';
+
+// NOTE: `KioskOutputPayload` (from lib/socket) should be updated
+// to include `inputMode: InputMode` directly. Until that type is
+// updated there, this local type widens it so the rest of this
+// file can rely on `payload.inputMode` safely.
+type KioskOutputPayloadWithMode = KioskOutputPayload & {
+  inputMode?: InputMode;
+};
+
 const SPEAKING_THRESHOLD = 0.2;
 const SILENCE_THRESHOLD = 0.15;
 const SILENCE_DURATION = 1800;
@@ -38,6 +56,12 @@ function KioskPageContent() {
   const [isRecording, setIsRecording] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [showNameInput, setShowNameInput] = useState(false);
+  const [showConfirmationButtons, setShowConfirmationButtons] =
+    useState(false);
+
+  const [showPhoneInput, setShowPhoneInput] = useState(false);
+
+  const [phoneInput, setPhoneInput] = useState('');
 
   // ------------------------------------------------------------
   // Audio refs
@@ -76,12 +100,20 @@ function KioskPageContent() {
   // GREETING
   // CONFIRMING_PHONE
   // PHONE_ASKING
+  // NAME_ASKING
   // etc.
   //
   // This is NOT the same as AvatarState.
   const sessionStateRef = useRef<string | null>(null);
 
-  // Text input state
+  // Backend-driven input mode: 'VOICE' | 'BUTTONS' | 'TEXT'.
+  // This decides whether the mic auto-starts after TTS, and
+  // which (if any) on-screen input control is shown.
+  const inputModeRef = useRef<InputMode>('VOICE');
+
+  // True whenever the current inputMode is NOT 'VOICE'.
+  // Used everywhere the mic auto-start logic previously checked
+  // "is this NAME_ASKING" — now it's simply "is this non-voice".
   const textInputStateRef = useRef(false);
 
   // ------------------------------------------------------------
@@ -145,6 +177,19 @@ function KioskPageContent() {
       URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = null;
     }
+  };
+
+  // ------------------------------------------------------------
+  // Hide every input UI.
+  //
+  // Called before showing whatever inputMode the backend just
+  // requested, so two input controls can never appear at once.
+  // ------------------------------------------------------------
+
+  const hideAllInputUI = () => {
+    setShowNameInput(false);
+    setShowConfirmationButtons(false);
+    setShowPhoneInput(false);
   };
 
   // ------------------------------------------------------------
@@ -534,7 +579,7 @@ function KioskPageContent() {
   };
 
   // ------------------------------------------------------------
-  // Submit customer name
+  // Submit customer name (TEXT input, state === NAME_ASKING)
   // ------------------------------------------------------------
 
   const submitName = () => {
@@ -554,8 +599,14 @@ function KioskPageContent() {
     }
 
     console.log(
-      '[Kiosk] Sending customer name:',
-      name,
+      '[Kiosk] Sending INPUT:',
+      {
+        sessionId: currentSessionId,
+        gateId,
+        state: 'NAME_ASKING',
+        audioBytes: 0,
+        text: name,
+      },
     );
 
     emitInput({
@@ -565,10 +616,97 @@ function KioskPageContent() {
       text: name,
     });
 
-    // Hide keyboard.
-    // Avatar will automatically appear again.
+    // Hide keyboard immediately so it can't be submitted twice
+    // while waiting for the backend's next OUTPUT.
+    // Do NOT manually change the kiosk/business state — the
+    // backend will send the next OUTPUT.
     setShowNameInput(false);
     setNameInput('');
+
+    setState('idle');
+  };
+
+  // ------------------------------------------------------------
+  // Submit phone number (TEXT input, state === PHONE_ASKING)
+  // ------------------------------------------------------------
+
+  const submitPhone = () => {
+    const phone = phoneInput.trim();
+
+    if (!phone) {
+      return;
+    }
+
+    const currentSessionId = sessionIdRef.current;
+
+    if (!currentSessionId) {
+      console.warn(
+        '[Kiosk] Cannot submit phone number: sessionId is missing',
+      );
+      return;
+    }
+
+    console.log(
+      '[Kiosk] Sending INPUT:',
+      {
+        sessionId: currentSessionId,
+        gateId,
+        state: 'PHONE_ASKING',
+        audioBytes: 0,
+        text: phone,
+      },
+    );
+
+    emitInput({
+      sessionId: currentSessionId,
+      gateId,
+      state: 'PHONE_ASKING',
+      text: phone,
+    });
+
+    // Hide keyboard immediately. Do NOT manually move to
+    // GREETING/CONFIRMING_PHONE — wait for the backend OUTPUT.
+    setShowPhoneInput(false);
+    setPhoneInput('');
+
+    setState('idle');
+  };
+
+  // ------------------------------------------------------------
+  // Confirmation buttons (BUTTONS input, state === CONFIRMING_PHONE)
+  // ------------------------------------------------------------
+
+  const sendConfirmation = (answer: 'نعم' | 'لا') => {
+    const currentSessionId = sessionIdRef.current;
+
+    if (!currentSessionId) {
+      console.warn(
+        '[Kiosk] Cannot send confirmation: sessionId is missing',
+      );
+      return;
+    }
+
+    console.log(
+      '[Kiosk] Sending INPUT:',
+      {
+        sessionId: currentSessionId,
+        gateId,
+        state: 'CONFIRMING_PHONE',
+        audioBytes: 0,
+        text: answer,
+      },
+    );
+
+    emitInput({
+      sessionId: currentSessionId,
+      gateId,
+      state: 'CONFIRMING_PHONE',
+      text: answer,
+    });
+
+    // Hide buttons immediately so they can't be pressed twice
+    // while waiting for the backend's next OUTPUT.
+    setShowConfirmationButtons(false);
 
     setState('idle');
   };
@@ -594,16 +732,19 @@ function KioskPageContent() {
           payload,
         );
 
+        const typedPayload =
+          payload as KioskOutputPayloadWithMode;
+
         // ------------------------------------------------------
         // Save backend session information
         // ------------------------------------------------------
 
-        if (payload.sessionId) {
+        if (typedPayload.sessionId) {
           sessionIdRef.current =
-            payload.sessionId;
+            typedPayload.sessionId;
 
           setSessionId(
-            payload.sessionId,
+            typedPayload.sessionId,
           );
         }
 
@@ -613,24 +754,77 @@ function KioskPageContent() {
         // This is NOT the avatar state.
         // ------------------------------------------------------
 
-        if (payload.state) {
+        if (typedPayload.state) {
           sessionStateRef.current =
-            payload.state;
+            typedPayload.state;
 
           console.log(
             '[Kiosk] Backend business state:',
-            payload.state,
+            typedPayload.state,
           );
+        }
 
-          if (
-            payload.state === 'NAME_ASKING'
-          ) {
-            textInputStateRef.current = true;
+        // ------------------------------------------------------
+        // Resolve inputMode.
+        //
+        // The backend is expected to always send inputMode now.
+        // If an older backend build omits it, fall back to the
+        // previous NAME_ASKING-implies-TEXT behavior so nothing
+        // breaks mid-rollout.
+        // ------------------------------------------------------
+
+        const resolvedInputMode: InputMode =
+          typedPayload.inputMode ??
+          (typedPayload.state === 'NAME_ASKING'
+            ? 'TEXT'
+            : 'VOICE');
+
+        inputModeRef.current = resolvedInputMode;
+
+        // Anything other than VOICE means: don't auto-start the
+        // mic after TTS, and keep the avatar idle instead.
+        textInputStateRef.current =
+          resolvedInputMode !== 'VOICE';
+
+        // ------------------------------------------------------
+        // Only one input UI at a time.
+        //
+        // Always hide every input control first, then show
+        // exactly the one the backend just asked for. This is
+        // what prevents two controls (e.g. keyboard + buttons)
+        // from ever appearing together.
+        // ------------------------------------------------------
+
+        hideAllInputUI();
+
+        if (resolvedInputMode === 'BUTTONS') {
+          setShowConfirmationButtons(true);
+        } else if (resolvedInputMode === 'TEXT') {
+          if (typedPayload.state === 'NAME_ASKING') {
             setShowNameInput(true);
-          } else {
-            textInputStateRef.current = false;
-            setShowNameInput(false);
+          } else if (typedPayload.state === 'PHONE_ASKING') {
+            setShowPhoneInput(true);
           }
+        }
+
+        // Clear any stale keystrokes left over from a previous
+        // turn that isn't the one currently being shown.
+        if (
+          !(
+            resolvedInputMode === 'TEXT' &&
+            typedPayload.state === 'NAME_ASKING'
+          )
+        ) {
+          setNameInput('');
+        }
+
+        if (
+          !(
+            resolvedInputMode === 'TEXT' &&
+            typedPayload.state === 'PHONE_ASKING'
+          )
+        ) {
+          setPhoneInput('');
         }
 
         // ------------------------------------------------------
@@ -638,14 +832,19 @@ function KioskPageContent() {
         // ------------------------------------------------------
 
         setMessage(
-          payload.message || '',
+          typedPayload.message || '',
         );
 
         // ------------------------------------------------------
         // Handle audio
+        //
+        // The backend still sends TTS even when inputMode is
+        // BUTTONS or TEXT, so we never return early here just
+        // because of the input mode — only the "what happens
+        // after TTS" branch differs.
         // ------------------------------------------------------
 
-        if (!payload.audio) {
+        if (!typedPayload.audio) {
           console.warn(
             '[Kiosk] OUTPUT has no audio.',
           );
@@ -653,6 +852,8 @@ function KioskPageContent() {
           if (!textInputStateRef.current) {
             setState('listening');
             startRecording();
+          } else {
+            setState('idle');
           }
 
           return;
@@ -666,11 +867,11 @@ function KioskPageContent() {
           // ----------------------------------------------------
 
           if (
-            payload.audio instanceof
+            typedPayload.audio instanceof
             ArrayBuffer
           ) {
             audioBuffer =
-              payload.audio;
+              typedPayload.audio;
           }
 
           // ----------------------------------------------------
@@ -679,11 +880,11 @@ function KioskPageContent() {
 
           else if (
             ArrayBuffer.isView(
-              payload.audio,
+              typedPayload.audio,
             )
           ) {
             const view =
-              payload.audio as Uint8Array;
+              typedPayload.audio as Uint8Array;
 
             audioBuffer =
               view.buffer.slice(
@@ -704,14 +905,14 @@ function KioskPageContent() {
           // ----------------------------------------------------
 
           else if (
-            payload.audio &&
-            typeof payload.audio ===
+            typedPayload.audio &&
+            typeof typedPayload.audio ===
               'object' &&
-            'data' in payload.audio
+            'data' in typedPayload.audio
           ) {
             const bufferData =
               (
-                payload.audio as {
+                typedPayload.audio as {
                   data: number[];
                 }
               ).data;
@@ -728,12 +929,12 @@ function KioskPageContent() {
 
           else if (
             Array.isArray(
-              payload.audio,
+              typedPayload.audio,
             )
           ) {
             audioBuffer =
               new Uint8Array(
-                payload.audio,
+                typedPayload.audio,
               ).buffer;
           }
 
@@ -744,12 +945,14 @@ function KioskPageContent() {
           else {
             console.error(
               '[Kiosk] Unsupported audio format:',
-              payload.audio,
+              typedPayload.audio,
             );
 
             if (!textInputStateRef.current) {
               setState('listening');
               startRecording();
+            } else {
+              setState('idle');
             }
 
             return;
@@ -801,6 +1004,11 @@ function KioskPageContent() {
 
           // ------------------------------------------------------
           // Audio finishes
+          //
+          // inputMode === 'VOICE'  -> start microphone
+          // otherwise              -> stay idle, wait for
+          //                           button press / keyboard
+          //                           submit
           // ------------------------------------------------------
 
           audio.onended = () => {
@@ -810,14 +1018,11 @@ function KioskPageContent() {
 
             cleanupAudio();
 
-            // NAME_ASKING uses keyboard input,
-            // so do NOT start the microphone.
             if (textInputStateRef.current) {
               setState('idle');
               return;
             }
 
-            // Other kiosk states use voice input.
             setState('listening');
             startRecording();
           };
@@ -918,7 +1123,7 @@ function KioskPageContent() {
   }, []);
 
   // ------------------------------------------------------------
-  // Custom Arabic keyboard
+  // Custom Arabic keyboard (NAME_ASKING)
   // ------------------------------------------------------------
 
   const handleKeyboardPress = (key: string) => {
@@ -947,6 +1152,31 @@ function KioskPageContent() {
   };
 
   // ------------------------------------------------------------
+  // Numeric keypad (PHONE_ASKING)
+  //
+  // Reuses the same keyboard architecture/classes as the Arabic
+  // keyboard — just a different key set and target state.
+  // ------------------------------------------------------------
+
+  const handlePhoneKeyPress = (key: string) => {
+    if (key === '⌫') {
+      setPhoneInput((prev) =>
+        prev.slice(0, -1),
+      );
+      return;
+    }
+
+    if (key === 'مسح') {
+      setPhoneInput('');
+      return;
+    }
+
+    setPhoneInput((prev) =>
+      prev + key,
+    );
+  };
+
+  // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
 
@@ -955,6 +1185,18 @@ function KioskPageContent() {
     ['د', 'ش', 'س', 'ي', 'ب', 'ل', 'ا', 'ت', 'ن', 'م', 'ك'],
     ['ط', 'ئ', 'ء', 'ؤ', 'ر', 'لا', 'ى', 'ة', 'و', 'ز', 'ظ', 'إ', 'أ'],
   ];
+
+  const phoneKeyboardRows: string[][] = [
+    ['1', '2', '3'],
+    ['4', '5', '6'],
+    ['7', '8', '9'],
+    ['مسح', '0', '⌫'],
+  ];
+
+  // Avatar stays hidden only while a full keyboard is active —
+  // the two confirmation buttons are compact enough to keep it
+  // visible, matching the existing kiosk design.
+  const isKeyboardActive = showNameInput || showPhoneInput;
 
   return (
     <main className="kiosk">
@@ -976,11 +1218,12 @@ function KioskPageContent() {
         {/* --------------------------------------------------
             Avatar
 
-            Hidden while the customer is entering their name.
-            It appears again automatically after إرسال.
+            Hidden while a keyboard (name or phone) is active.
+            It appears again automatically once the keyboard
+            is dismissed.
         -------------------------------------------------- */}
 
-        {!showNameInput && (
+        {!isKeyboardActive && (
           <div className={`kiosk-avatar-frame kiosk-avatar-frame--${state}`}>
             <KioskAvatar state={state} size={340} />
           </div>
@@ -995,7 +1238,7 @@ function KioskPageContent() {
             className="kiosk-message"
             dir="rtl"
             style={{
-              fontSize: showNameInput
+              fontSize: isKeyboardActive
                 ? 'clamp(1.6rem, 3vw, 2.2rem)'
                 : undefined,
             }}
@@ -1005,7 +1248,33 @@ function KioskPageContent() {
         )}
 
         {/* --------------------------------------------------
-            NAME INPUT + CUSTOM KEYBOARD
+            CONFIRMATION BUTTONS (BUTTONS input mode,
+            state === CONFIRMING_PHONE)
+        -------------------------------------------------- */}
+
+        {showConfirmationButtons && (
+          <div className="kiosk-confirm-wrap" dir="rtl">
+            <button
+              type="button"
+              onClick={() => sendConfirmation('نعم')}
+              className="kiosk-confirm-btn kiosk-confirm-btn--yes"
+            >
+              نعم
+            </button>
+
+            <button
+              type="button"
+              onClick={() => sendConfirmation('لا')}
+              className="kiosk-confirm-btn kiosk-confirm-btn--no"
+            >
+              لا
+            </button>
+          </div>
+        )}
+
+        {/* --------------------------------------------------
+            NAME INPUT + CUSTOM ARABIC KEYBOARD
+            (TEXT input mode, state === NAME_ASKING)
         -------------------------------------------------- */}
 
         {showNameInput && (
@@ -1081,13 +1350,68 @@ function KioskPageContent() {
             </button>
           </div>
         )}
+
+        {/* --------------------------------------------------
+            PHONE INPUT + NUMERIC KEYPAD
+            (TEXT input mode, state === PHONE_ASKING)
+        -------------------------------------------------- */}
+
+        {showPhoneInput && (
+          <div className="kiosk-namecard">
+            {/* Phone input */}
+
+            <input
+              type="tel"
+              value={phoneInput}
+              readOnly
+              placeholder="أدخل رقم الهاتف"
+              dir="rtl"
+              className="kiosk-name-input"
+            />
+
+            {/* Numeric keypad */}
+
+            <div className="kiosk-keyboard" dir="rtl">
+              {phoneKeyboardRows.map((row, rowIndex) => (
+                <div className="kiosk-keyboard-row" key={rowIndex}>
+                  {row.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handlePhoneKeyPress(key)}
+                      className={
+                        key === '⌫' || key === 'مسح'
+                          ? 'kiosk-key kiosk-key--control'
+                          : 'kiosk-key'
+                      }
+                      aria-label={key === '⌫' ? 'حذف رقم' : undefined}
+                    >
+                      {key}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            {/* Submit */}
+
+            <button
+              type="button"
+              onClick={submitPhone}
+              disabled={!phoneInput.trim()}
+              className="kiosk-send-button"
+            >
+              إرسال
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ------------------------------------------------------
           Start Kiosk overlay
       ------------------------------------------------------ */}
 
-      {!audioUnlocked && !showNameInput && (
+      {!audioUnlocked && !isKeyboardActive && (
         <div className="kiosk-overlay">
           <div className="kiosk-overlay-card">
             <span className="kiosk-overlay-eyebrow">بوابة {gateId}</span>
@@ -1215,6 +1539,54 @@ function KioskPageContent() {
           line-height: 1.25;
           color: var(--ink);
           text-wrap: balance;
+        }
+
+        .kiosk-confirm-wrap {
+          display: flex;
+          gap: clamp(12px, 2vw, 24px);
+          width: min(94vw, 640px);
+          animation: kiosk-rise 0.32s ease;
+        }
+
+        .kiosk-confirm-btn {
+          flex: 1;
+          min-height: clamp(70px, 10vh, 100px);
+          font-family: inherit;
+          font-size: clamp(1.8rem, 3vw, 2.4rem);
+          font-weight: 800;
+          border-radius: 18px;
+          cursor: pointer;
+          transition: transform 0.08s ease, box-shadow 0.15s ease, background 0.12s ease;
+        }
+
+        .kiosk-confirm-btn--yes {
+          color: #ffffff;
+          background: linear-gradient(135deg, var(--toyota-red) 0%, var(--toyota-red-dim) 100%);
+          border: none;
+          box-shadow: 0 10px 24px rgba(235, 10, 30, 0.35);
+        }
+
+        .kiosk-confirm-btn--yes:hover {
+          box-shadow: 0 12px 30px rgba(235, 10, 30, 0.45);
+        }
+
+        .kiosk-confirm-btn--no {
+          color: var(--ink);
+          background: rgba(255, 255, 255, 0.06);
+          border: 1.5px solid var(--panel-border);
+        }
+
+        .kiosk-confirm-btn--no:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .kiosk-confirm-btn:active {
+          transform: scale(0.97);
+        }
+
+        .kiosk-confirm-btn:focus-visible {
+          outline: 3px solid rgba(120, 170, 255, 0.7);
+          outline-offset: 3px;
         }
 
         .kiosk-namecard {
@@ -1426,7 +1798,8 @@ function KioskPageContent() {
         @media (prefers-reduced-motion: reduce) {
           .kiosk-namecard,
           .kiosk-keyboard,
-          .kiosk-overlay {
+          .kiosk-overlay,
+          .kiosk-confirm-wrap {
             animation: none;
           }
         }

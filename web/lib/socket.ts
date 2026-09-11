@@ -11,7 +11,8 @@ export interface KioskOutputPayload {
   gateId: string;
   state: string;
   message: string;
-  audio: any;
+  audio?: ArrayBuffer;
+  inputMode: 'VOICE' | 'BUTTONS' | 'TEXT';
 }
 
 export interface KioskInputPayload {
