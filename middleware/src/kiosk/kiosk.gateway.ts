@@ -17,6 +17,7 @@ import { CheckInResultDto } from '../common/dtos/checkin-result.dto';
 import { KioskStateEnum } from './enum/VoiceStateEnum';
 import { ConfirmingPhoneDto } from './interfaces/ConfirmingPhoneDto';
 import { KioskService } from './kiosk.service';
+import { AskingPhoneDto } from './interfaces/AskingPhoneDto';
 
 
 type SendGreetingDTO={
@@ -115,5 +116,12 @@ handleConfirmingPhone(
     EVENTS.CONFIRMING_PHONE,
     payload,
   );
+}
+
+@OnEvent(EVENTS.ASKING_ABOUT_PHONE)
+handleAskingPhone(payload:AskingPhoneDto){
+const roomName = `gate:${payload.gateId}`;
+  this.logger.log(`[KioskGateway] EMITTING ASKING_ABOUT_PHONE to room: ${roomName} (gateId: ${payload.gateId})`);
+  this.server.to(roomName).emit('ASKING_ABOUT_PHONE', payload);
 }
 }

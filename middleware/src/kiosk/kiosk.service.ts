@@ -1,5 +1,5 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { CheckInService } from '../checkin/checkin.service';
 import { EVENTS } from '../common/events';
@@ -10,6 +10,7 @@ import { ElevenLabsTtsAdapter, INluAdapter, ISttAdapter, ITtsAdapter, NluRulesAd
 import { KioskStateEnum } from './enum/VoiceStateEnum';
 import { ConfirmingPhoneDto } from './interfaces/ConfirmingPhoneDto';
 import { KioskSession } from './interfaces/kiosk-session.interface';
+import { AskingPhoneDto } from './interfaces/AskingPhoneDto';
 
 export type VoiceState = 'IDLE' | 'GREETING' | 'CONFIRMING_CUSTOMER' | 'CHECKING_IN' | 'COMPLETED';
 
@@ -25,7 +26,8 @@ export class KioskService {
     @Inject(forwardRef(() => KioskGateway))private readonly kioskGateway:KioskGateway,
     @Inject('ITtsAdapter')private readonly ttsAdapter:ITtsAdapter,
     @Inject('ISttAdapter')private readonly sttAdapter:ISttAdapter,
-    @Inject('INluAdapter')private readonly nluAdapter:INluAdapter
+    @Inject('INluAdapter')private readonly nluAdapter:INluAdapter,
+    private readonly eventemitter:EventEmitter2
   ) {}
 
   getState(): KioskStateEnum {
@@ -87,7 +89,15 @@ async handleConfirmingPhone(payload: ConfirmingPhoneDto) {
   }
 
   if (result.intent === 'NO') {
-    // move to PHONE_ASKING
+    const audio=await this.ttsAdapter.synthesize("ما هو رقمك؟")
+    const message="ما هو رقمك؟"
+    const data:AskingPhoneDto={
+      gateId:payload.gateId,
+      session:payload.sessionId,
+      audio,
+      message
+    }
+    this.eventemitter.emit(EVENTS.ASKING_ABOUT_PHONE,data)
   }
 }
 

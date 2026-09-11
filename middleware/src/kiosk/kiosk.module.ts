@@ -7,6 +7,7 @@ import { CheckInModule } from '../checkin/checkin.module';
 import { RedisModule } from '../common/redis/redis.module';
 import { AiModule, ElevenLabsSttAdapter, ElevenLabsTtsAdapter, NluRulesAdapter, StubTtsAdapter } from 'src/ai';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypedEventEmitter } from '@common/typed-event-emitter.service';
 
 @Module({
   imports: [CheckInModule, RedisModule,AiModule,ConfigModule],
@@ -20,8 +21,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     },{
       provide:'INluAdapter',
       useClass:NluRulesAdapter
-
-    }
+    },
+    TypedEventEmitter
   ],
   exports: [KioskService, SessionRepository, SessionService],
 })
