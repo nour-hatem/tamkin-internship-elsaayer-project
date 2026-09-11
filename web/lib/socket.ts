@@ -73,5 +73,15 @@ export function subscribeToSendGreeting(callback: (data: any) => void): () => vo
   };
 }
 
+export function emitConfirmingPhone(payload: {
+  sessionId: string;
+  gateId: string;
+  audio: ArrayBuffer;
+}): void {
+  const s = getSocket();
+  s.emit('confirming.phone', payload);
+}
+
+
 
 
