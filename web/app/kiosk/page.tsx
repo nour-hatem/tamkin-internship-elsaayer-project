@@ -2,148 +2,137 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+
 import {
   joinGateRoom,
-  subscribeToSendGreeting,
-  emitConfirmingPhone,
+  subscribeToOutput,
+  emitInput,
+  type KioskOutputPayload,
 } from '../../lib/socket';
-import { KioskAvatar, type AvatarState } from '../../components/KioskAvatar';
+import { KioskAvatar } from '@/components/KioskAvatar';
 
-interface SendGreetingPayload {
-  sessionId: string;
-  state: string;
-  message: string;
-  audio: any;
-  gateId: string;
-}
+type AvatarState = 'idle' | 'talking' | 'listening';
 
-function KioskContent() {
+const SPEAKING_THRESHOLD = 0.2;
+const SILENCE_THRESHOLD = 0.15;
+const SILENCE_DURATION = 1800;
+const MAX_RECORD_TIME = 15000;
+const NO_SPEECH_TIMEOUT = 7000;
+
+function KioskPageContent() {
   const searchParams = useSearchParams();
+
   const gateId = searchParams.get('gateId') || 'gate-1';
 
+  // ------------------------------------------------------------
+  // Frontend/UI state
+  // ------------------------------------------------------------
+
+  // This is ONLY the avatar state.
+  // It is NOT the backend business/session state.
   const [state, setState] = useState<AvatarState>('idle');
+
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string>('');
+  const [message, setMessage] = useState('');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
-  // --------------------------------------------------
+  // ------------------------------------------------------------
   // Audio refs
-  // --------------------------------------------------
+  // ------------------------------------------------------------
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
-  // --------------------------------------------------
+  // ------------------------------------------------------------
   // Recording refs
-  // --------------------------------------------------
+  // ------------------------------------------------------------
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const maxRecordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const noSpeechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
 
+  const maxRecordTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  const noSpeechTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  // ------------------------------------------------------------
+  // Session refs
+  // ------------------------------------------------------------
+
+  // React state is useful for rendering,
+  // but refs are needed inside callbacks such as MediaRecorder.onstop.
   const sessionIdRef = useRef<string | null>(null);
 
-  // Keep the latest sessionId available inside async callbacks.
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
+  // Backend business state:
+  // GREETING
+  // CONFIRMING_PHONE
+  // PHONE_ASKING
+  // etc.
+  //
+  // This is NOT the same as AvatarState.
+  const sessionStateRef = useRef<string | null>(null);
 
-  // --------------------------------------------------
-  // Clean up recording resources
-  // --------------------------------------------------
+  // ------------------------------------------------------------
+  // Cleanup recording
+  // ------------------------------------------------------------
 
   const cleanupRecording = () => {
-    // Cancel VAD animation frame
     if (animationFrameRef.current !== null) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
 
-    // Clear fallback timers
-    if (maxRecordTimeoutRef.current !== null) {
+    if (maxRecordTimeoutRef.current) {
       clearTimeout(maxRecordTimeoutRef.current);
       maxRecordTimeoutRef.current = null;
     }
 
-    if (noSpeechTimeoutRef.current !== null) {
+    if (noSpeechTimeoutRef.current) {
       clearTimeout(noSpeechTimeoutRef.current);
       noSpeechTimeoutRef.current = null;
     }
 
-    // Stop microphone tracks
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => {
-        try {
-          track.stop();
-          console.log('[Kiosk] Stopped stream track:', track.label);
-        } catch (error) {
-          console.error('[Kiosk] Error stopping stream track:', error);
-        }
+        track.stop();
       });
 
       mediaStreamRef.current = null;
     }
+  };
 
-    // Close AudioContext
-    if (audioContextRef.current) {
-      if (audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch((error) => {
-          console.error('[Kiosk] Error closing AudioContext:', error);
-        });
-      }
+  // ------------------------------------------------------------
+  // Stop recording
+  // ------------------------------------------------------------
 
-      audioContextRef.current = null;
+  const stopRecording = () => {
+    const recorder = mediaRecorderRef.current;
+
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
     }
   };
 
-  // --------------------------------------------------
-  // Stop recording
-  // --------------------------------------------------
-
-const stopRecording = () => {
-  console.log('[Kiosk] stopRecording() requested');
-
-  if (maxRecordTimeoutRef.current !== null) {
-    console.log('[Kiosk] Clearing max recording timeout');
-    clearTimeout(maxRecordTimeoutRef.current);
-    maxRecordTimeoutRef.current = null;
-  }
-
-  const recorder = mediaRecorderRef.current;
-
-  if (!recorder) {
-    cleanupRecording();
-    setIsRecording(false);
-    return;
-  }
-
-  if (recorder.state !== 'inactive') {
-    try {
-      recorder.stop();
-    } catch (error) {
-      console.error('[Kiosk] Error stopping MediaRecorder:', error);
-    }
-  }
-
-  setIsRecording(false);
-};
-
-  // --------------------------------------------------
-  // Clean up currently playing TTS audio
-  // --------------------------------------------------
+  // ------------------------------------------------------------
+  // Cleanup audio
+  // ------------------------------------------------------------
 
   const cleanupAudio = () => {
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
-      currentAudioRef.current.src = '';
+      currentAudioRef.current.currentTime = 0;
       currentAudioRef.current = null;
     }
 
@@ -153,33 +142,45 @@ const stopRecording = () => {
     }
   };
 
-  // --------------------------------------------------
-  // Start microphone recording
-  // --------------------------------------------------
+  // ------------------------------------------------------------
+  // Start recording
+  // ------------------------------------------------------------
 
   const startRecording = async () => {
-    // Prevent duplicate recordings
-    if (mediaRecorderRef.current?.state === 'recording') {
-      console.log('[Kiosk] Recording already in progress.');
+    if (isRecording) {
+      return;
+    }
+
+    const currentSessionId = sessionIdRef.current;
+
+    if (!currentSessionId) {
+      console.warn(
+        '[Kiosk] Cannot start recording: sessionId is missing',
+      );
+
+      setState('idle');
+      return;
+    }
+
+    const currentState = sessionStateRef.current;
+
+    if (!currentState) {
+      console.warn(
+        '[Kiosk] Cannot start recording: session state is missing',
+      );
+
+      setState('idle');
       return;
     }
 
     try {
-      console.log('[Kiosk] Starting microphone recording...');
-
-      cleanupRecording();
-
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('getUserMedia is not supported in this browser');
-      }
-
-      if (typeof MediaRecorder === 'undefined') {
-        throw new Error('MediaRecorder API is not supported in this browser');
-      }
-
-      // --------------------------------------------------
-      // Request microphone
-      // --------------------------------------------------
+      console.log(
+        '[Kiosk] Starting recording...',
+        {
+          sessionId: currentSessionId,
+          state: currentState,
+        },
+      );
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -187,170 +188,46 @@ const stopRecording = () => {
 
       mediaStreamRef.current = stream;
 
-      // --------------------------------------------------
-      // Choose supported recording format
-      // --------------------------------------------------
-
+      // Prefer WebM/Opus.
+      // Fall back to Ogg if necessary.
       let mimeType = '';
 
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+      if (
+        MediaRecorder.isTypeSupported(
+          'audio/webm;codecs=opus',
+        )
+      ) {
         mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+      } else if (
+        MediaRecorder.isTypeSupported(
+          'audio/webm',
+        )
+      ) {
         mimeType = 'audio/webm';
-      } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+      } else if (
+        MediaRecorder.isTypeSupported(
+          'audio/ogg;codecs=opus',
+        )
+      ) {
         mimeType = 'audio/ogg;codecs=opus';
       }
 
-      const mediaRecorder = mimeType
+      const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
 
-      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorderRef.current = recorder;
 
-      const chunks: Blob[] = [];
+      const chunks: BlobPart[] = [];
 
-      // --------------------------------------------------
-      // Collect recorded audio
-      // --------------------------------------------------
+      let hasStartedSpeaking = false;
+      let silenceStartedAt: number | null = null;
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
+      // ----------------------------------------------------------
+      // Audio analysis for voice activity detection
+      // ----------------------------------------------------------
 
-      // --------------------------------------------------
-      // Recording finished
-      // --------------------------------------------------
-
-      mediaRecorder.onstop = async () => {
-        console.log('[Kiosk] MediaRecorder stopped');
-
-        const recordedMimeType =
-          mediaRecorder.mimeType || mimeType || 'audio/webm';
-
-        const audioBlob = new Blob(chunks, {
-          type: recordedMimeType,
-        });
-
-        console.log(
-          '[Kiosk] Recorded audio size:',
-          audioBlob.size,
-          'bytes',
-        );
-
-        try {
-          const arrayBuffer = await audioBlob.arrayBuffer();
-
-          console.log(
-            '[Kiosk] Audio ArrayBuffer created:',
-            arrayBuffer.byteLength,
-            'bytes',
-          );
-
-          const currentSessionId = sessionIdRef.current;
-
-          if (!currentSessionId) {
-            console.warn(
-              '[Kiosk] Cannot emit confirming.phone: sessionId is missing',
-            );
-
-            setState('idle');
-            cleanupRecording();
-            mediaRecorderRef.current = null;
-            return;
-          }
-
-          // --------------------------------------------------
-          // Send recording to backend
-          //
-          // Frontend does NOT decide YES/NO.
-          // Backend will perform STT + NLU.
-          // --------------------------------------------------
-
-          console.log(
-            '[Kiosk] Emitting confirming.phone event...',
-          );
-
-          emitConfirmingPhone({
-            sessionId: currentSessionId,
-            gateId,
-            audio: arrayBuffer,
-          });
-
-          console.log(
-            '[Kiosk] confirming.phone emitted successfully',
-          );
-        } catch (error) {
-          console.error(
-            '[Kiosk] Error processing recorded audio:',
-            error,
-          );
-        } finally {
-          mediaRecorderRef.current = null;
-
-          cleanupRecording();
-
-          setIsRecording(false);
-
-          // Wait for backend response before changing the
-          // business state later.
-          setState('idle');
-        }
-      };
-
-      mediaRecorder.onerror = (event) => {
-        console.error(
-          '[Kiosk] MediaRecorder error:',
-          event,
-        );
-
-        mediaRecorderRef.current = null;
-
-        setIsRecording(false);
-        cleanupRecording();
-        setState('idle');
-      };
-
-      // --------------------------------------------------
-      // Start recording
-      // --------------------------------------------------
-
-      mediaRecorder.start();
-
-      setIsRecording(true);
-      setState('listening');
-
-      console.log('[Kiosk] Recording started.');
-
-      // --------------------------------------------------
-      // Voice Activity Detection
-      // --------------------------------------------------
-
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & {
-          webkitAudioContext?: typeof AudioContext;
-        }).webkitAudioContext;
-
-      if (!AudioContextClass) {
-        console.warn(
-          '[Kiosk] AudioContext is not supported.',
-        );
-
-        // Fallback: stop after 6 seconds.
-        maxRecordTimeoutRef.current = setTimeout(() => {
-          console.log(
-            '[Kiosk] Fixed recording timeout reached.',
-          );
-
-          stopRecording();
-        }, 6000);
-
-        return;
-      }
-
-      const audioContext = new AudioContextClass();
+      const audioContext = new AudioContext();
 
       audioContextRef.current = audioContext;
 
@@ -360,152 +237,273 @@ const stopRecording = () => {
       const analyser =
         audioContext.createAnalyser();
 
-      analyser.fftSize = 512;
-
-      const bufferLength = analyser.fftSize;
-
-      const dataArray =
-        new Float32Array(bufferLength);
+      analyser.fftSize = 2048;
 
       source.connect(analyser);
 
-      // --------------------------------------------------
-      // VAD configuration
-      // --------------------------------------------------
+      const dataArray = new Uint8Array(
+        analyser.fftSize,
+      );
 
-      const SPEAKING_THRESHOLD = 0.2;
-      const SILENCE_THRESHOLD = 0.15;
-
-      // Customer must be silent for ~1.8 seconds.
-      const SILENCE_DURATION = 1800;
-
-      // Maximum total recording duration.
-      const MAX_RECORD_TIME = 15000;
-
-      // If customer says nothing for 7 seconds.
-      const NO_SPEECH_TIMEOUT = 7000;
-
-      const startTime = Date.now();
-
-      let hasSpoken = false;
-      let silenceStart: number | null = null;
-
-      // --------------------------------------------------
-      // VAD loop
-      // --------------------------------------------------
-
-      const checkSilence = () => {
-        const recorder = mediaRecorderRef.current;
-
-        if (!recorder || recorder.state === 'inactive') {
+      const checkAudioLevel = () => {
+        if (
+          !mediaRecorderRef.current ||
+          mediaRecorderRef.current.state === 'inactive'
+        ) {
           return;
         }
 
-        analyser.getFloatTimeDomainData(dataArray);
+        analyser.getByteTimeDomainData(dataArray);
 
-        let sumSquares = 0;
+        let sum = 0;
 
         for (let i = 0; i < dataArray.length; i++) {
-          sumSquares += dataArray[i] * dataArray[i];
-          
+          const normalized =
+            (dataArray[i] - 128) / 128;
+
+          sum += normalized * normalized;
         }
 
         const rms = Math.sqrt(
-          sumSquares / dataArray.length,
+          sum / dataArray.length,
         );
 
-        const elapsed = Date.now() - startTime;
+        // User started speaking.
+        if (
+          !hasStartedSpeaking &&
+          rms >= SPEAKING_THRESHOLD
+        ) {
+          hasStartedSpeaking = true;
+          silenceStartedAt = null;
 
-        // --------------------------------------------------
-        // Maximum recording duration
-        // --------------------------------------------------
+          console.log(
+            '[Kiosk] Speech detected',
+          );
+        }
 
-        if (elapsed >= MAX_RECORD_TIME) {
+        // After speech has started,
+        // detect silence.
+        if (hasStartedSpeaking) {
+          if (rms < SILENCE_THRESHOLD) {
+            if (silenceStartedAt === null) {
+              silenceStartedAt = Date.now();
+            } else {
+              const silenceDuration =
+                Date.now() - silenceStartedAt;
+
+              if (
+                silenceDuration >=
+                SILENCE_DURATION
+              ) {
+                console.log(
+                  '[Kiosk] Silence detected. Stopping recording.',
+                );
+
+                stopRecording();
+                return;
+              }
+            }
+          } else {
+            silenceStartedAt = null;
+          }
+        }
+
+        animationFrameRef.current =
+          requestAnimationFrame(checkAudioLevel);
+      };
+
+      // ----------------------------------------------------------
+      // Recorder events
+      // ----------------------------------------------------------
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        console.log(
+            '[Kiosk] Recording stopped.',
+             );
+
+        setIsRecording(false);
+
+        // The kiosk is no longer listening.
+        // It is now waiting for the backend response.
+        setState('idle');
+
+        cleanupRecording();
+
+        mediaRecorderRef.current = null;
+
+        if (chunks.length === 0) {
+          console.warn(
+            '[Kiosk] No audio chunks were recorded.',
+          );
+
+          setState('idle');
+          return;
+        }
+
+        try {
+          const blob = new Blob(chunks, {
+            type:
+              mimeType ||
+              'audio/webm',
+          });
+
+          const arrayBuffer =
+            await blob.arrayBuffer();
+
+          const currentSessionId =
+            sessionIdRef.current;
+
+          if (!currentSessionId) {
+            console.warn(
+              '[Kiosk] Cannot emit INPUT: sessionId is missing.',
+            );
+
+            setState('idle');
+            return;
+          }
+
+          const currentState =
+            sessionStateRef.current;
+
+          if (!currentState) {
+            console.warn(
+              '[Kiosk] Cannot emit INPUT: session state is missing.',
+            );
+
+            setState('idle');
+            return;
+          }
+
+          // ------------------------------------------------------
+          // Frontend -> Backend
+          //
+          // The frontend does NOT decide what the user's answer
+          // means.
+          //
+          // It simply sends:
+          // - sessionId
+          // - gateId
+          // - current backend state
+          // - recorded audio
+          //
+          // Backend will:
+          // INPUT
+          //   -> STT
+          //   -> NLU
+          //   -> business logic
+          // ------------------------------------------------------
+
+          console.log(
+            '[Kiosk] Sending INPUT:',
+            {
+              sessionId: currentSessionId,
+              gateId,
+              state: currentState,
+              audioBytes: arrayBuffer.byteLength,
+            },
+          );
+
+          emitInput({
+            sessionId: currentSessionId,
+            gateId,
+            state: currentState,
+            audio: arrayBuffer,
+          });
+        } catch (error) {
+          console.error(
+            '[Kiosk] Failed to process recorded audio:',
+            error,
+          );
+
+          setState('idle');
+        }
+      };
+
+      recorder.onerror = (event) => {
+        console.error(
+          '[Kiosk] MediaRecorder error:',
+          event,
+        );
+
+        setIsRecording(false);
+
+        cleanupRecording();
+
+        mediaRecorderRef.current = null;
+
+        setState('idle');
+      };
+
+      // ----------------------------------------------------------
+      // Start recording
+      // ----------------------------------------------------------
+
+      recorder.start();
+
+      setIsRecording(true);
+      setState('listening');
+
+      console.log(
+        '[Kiosk] Recording started.',
+      );
+
+      // ----------------------------------------------------------
+      // No speech timeout
+      //
+      // If the user does not speak at all for 7 seconds,
+      // stop recording.
+      // ----------------------------------------------------------
+
+      noSpeechTimeoutRef.current =
+        setTimeout(() => {
+          if (!hasStartedSpeaking) {
+            console.log(
+              '[Kiosk] No speech detected. Stopping recording.',
+            );
+
+            stopRecording();
+          }
+        }, NO_SPEECH_TIMEOUT);
+
+      // ----------------------------------------------------------
+      // Maximum recording timeout
+      // ----------------------------------------------------------
+
+      maxRecordTimeoutRef.current =
+        setTimeout(() => {
           console.log(
             '[Kiosk] Maximum recording time reached.',
           );
 
           stopRecording();
-          return;
-        }
+        }, MAX_RECORD_TIME);
 
-        // --------------------------------------------------
-        // Waiting for customer to start speaking
-        // --------------------------------------------------
-
-        if (!hasSpoken) {
-          if (
-            rms > SPEAKING_THRESHOLD &&
-            elapsed > 300
-          ) {
-            hasSpoken = true;
-
-            console.log(
-              '[Kiosk] Speech detected. RMS:',
-              rms.toFixed(4),
-            );
-          } else if (
-            elapsed >= NO_SPEECH_TIMEOUT
-          ) {
-            console.log(
-              '[Kiosk] No speech detected. Stopping.',
-            );
-
-            stopRecording();
-            return;
-          }
-        }
-
-        // --------------------------------------------------
-        // Customer has spoken.
-        // Now detect silence.
-        // --------------------------------------------------
-
-        else {
-          if (rms < SILENCE_THRESHOLD) {
-            if (silenceStart === null) {
-              silenceStart = Date.now();
-            } else if (
-              Date.now() - silenceStart >=
-              SILENCE_DURATION
-            ) {
-              console.log(
-                '[Kiosk] Silence duration reached. Stopping.',
-              );
-
-              stopRecording();
-              return;
-            }
-          } else {
-            // Customer started speaking again.
-            silenceStart = null;
-          }
-        }
-
-        animationFrameRef.current =
-          requestAnimationFrame(checkSilence);
-      };
-
-      animationFrameRef.current =
-        requestAnimationFrame(checkSilence);
-
+      // Start VAD loop.
+      checkAudioLevel();
     } catch (error) {
       console.error(
-        '[Kiosk] Failed to start microphone recording:',
+        '[Kiosk] Failed to start recording:',
         error,
       );
 
+      cleanupRecording();
+
+      mediaRecorderRef.current = null;
+
       setIsRecording(false);
       setState('idle');
-
-      cleanupRecording();
-      mediaRecorderRef.current = null;
     }
   };
 
-  // --------------------------------------------------
+  // ------------------------------------------------------------
   // Unlock browser audio
-  // --------------------------------------------------
+  // ------------------------------------------------------------
 
   const unlockAudio = async () => {
     try {
@@ -513,121 +511,187 @@ const stopRecording = () => {
 
       audio.muted = true;
 
-      await audio.play();
+      await audio.play().catch(() => {});
 
       audio.pause();
 
       setAudioUnlocked(true);
 
       console.log(
-        '[Kiosk] Audio unlocked successfully',
+        '[Kiosk] Audio unlocked.',
       );
     } catch (error) {
-      console.error(
-        '[Kiosk] Failed to unlock audio:',
+      console.warn(
+        '[Kiosk] Could not unlock audio:',
         error,
       );
+
+      setAudioUnlocked(true);
     }
   };
 
-  // --------------------------------------------------
-  // Receive greeting from backend
-  // --------------------------------------------------
+  // ------------------------------------------------------------
+  // Backend OUTPUT listener
+  // ------------------------------------------------------------
 
   useEffect(() => {
     console.log(
-      `[Kiosk] Initializing Kiosk for gate: ${gateId}`,
+      `[Kiosk] Setting up OUTPUT listener for ${gateId}`,
     );
 
     // IMPORTANT:
-    // Subscribe BEFORE joining the room so we don't
-    // miss SEND_GREETING.
-    const unsubscribe =
-      subscribeToSendGreeting(
-        (payload: SendGreetingPayload) => {
+    // Subscribe BEFORE joining the room.
+    //
+    // This prevents a race where the backend sends OUTPUT
+    // immediately after the kiosk joins.
+    const unsubscribe = subscribeToOutput(
+      async (payload: KioskOutputPayload) => {
+        console.log(
+          '[Kiosk] OUTPUT received:',
+          payload,
+        );
+
+        // ------------------------------------------------------
+        // Save backend session information
+        // ------------------------------------------------------
+
+        if (payload.sessionId) {
+          sessionIdRef.current =
+            payload.sessionId;
+
+          setSessionId(
+            payload.sessionId,
+          );
+        }
+
+        // ------------------------------------------------------
+        // Save backend business state
+        //
+        // This is NOT the avatar state.
+        // ------------------------------------------------------
+
+        if (payload.state) {
+          sessionStateRef.current =
+            payload.state;
+
           console.log(
-            '[Kiosk] Received SEND_GREETING',
-            payload,
+            '[Kiosk] Backend business state:',
+            payload.state,
+          );
+        }
+
+        // ------------------------------------------------------
+        // Update displayed message
+        // ------------------------------------------------------
+
+        setMessage(
+          payload.message || '',
+        );
+
+        // ------------------------------------------------------
+        // Handle audio
+        // ------------------------------------------------------
+
+        if (!payload.audio) {
+          console.warn(
+            '[Kiosk] OUTPUT has no audio.',
           );
 
-          // --------------------------------------------------
-          // Save session information
-          // --------------------------------------------------
+          setState('listening');
 
-          if (payload.sessionId) {
-            setSessionId(payload.sessionId);
-            sessionIdRef.current =
-              payload.sessionId;
+          startRecording();
+
+          return;
+        }
+
+        try {
+          let audioBuffer: ArrayBuffer;
+
+          // ----------------------------------------------------
+          // Case 1: ArrayBuffer
+          // ----------------------------------------------------
+
+          if (
+            payload.audio instanceof
+            ArrayBuffer
+          ) {
+            audioBuffer =
+              payload.audio;
           }
 
-          if (payload.message) {
-            setMessage(payload.message);
-          }
+          // ----------------------------------------------------
+          // Case 2: Uint8Array / typed array
+          // ----------------------------------------------------
 
-          // --------------------------------------------------
-          // Clean previous audio/recording
-          // --------------------------------------------------
-
-          cleanupAudio();
-          cleanupRecording();
-
-          // --------------------------------------------------
-          // No audio fallback
-          // --------------------------------------------------
-
-          if (!payload.audio) {
-            console.warn(
-              '[Kiosk] No greeting audio received.',
-            );
-
-            setState('listening');
-
-            startRecording();
-
-            return;
-          }
-
-          // --------------------------------------------------
-          // Convert backend audio to ArrayBuffer
-          // --------------------------------------------------
-
-          let arrayBuffer: ArrayBuffer | null =
-            null;
-
-          if (payload.audio instanceof ArrayBuffer) {
-            arrayBuffer = payload.audio;
-          } else if (
-            ArrayBuffer.isView(payload.audio)
+          else if (
+            ArrayBuffer.isView(
+              payload.audio,
+            )
           ) {
             const view =
-              payload.audio as Uint8Array;
+              payload.audio as
+                Uint8Array;
 
-            arrayBuffer = view.buffer.slice(
-              view.byteOffset,
-              view.byteOffset + view.byteLength,
-            ) as ArrayBuffer;
-          } else if (
-            payload.audio?.type === 'Buffer' &&
-            Array.isArray(payload.audio.data)
-          ) {
-            arrayBuffer =
-              new Uint8Array(
-                payload.audio.data,
-              ).buffer;
-          } else if (
-            Array.isArray(payload.audio)
-          ) {
-            arrayBuffer =
-              new Uint8Array(payload.audio).buffer;
+            audioBuffer =
+              view.buffer.slice(
+                view.byteOffset,
+                view.byteOffset +
+                  view.byteLength,
+              ) as ArrayBuffer;
           }
 
-          // --------------------------------------------------
-          // Audio couldn't be parsed
-          // --------------------------------------------------
+          // ----------------------------------------------------
+          // Case 3: Socket.IO / Node Buffer-like object
+          //
+          // Example:
+          // {
+          //   type: "Buffer",
+          //   data: [73, 68, 51, ...]
+          // }
+          // ----------------------------------------------------
 
-          if (!arrayBuffer) {
-            console.warn(
-              '[Kiosk] Could not parse greeting audio.',
+          else if (
+            payload.audio &&
+            typeof payload.audio ===
+              'object' &&
+            'data' in payload.audio
+          ) {
+            const bufferData =
+              (
+                payload.audio as {
+                  data: number[];
+                }
+              ).data;
+
+            audioBuffer =
+              new Uint8Array(
+                bufferData,
+              ).buffer;
+          }
+
+          // ----------------------------------------------------
+          // Case 4: Array of numbers
+          // ----------------------------------------------------
+
+          else if (
+            Array.isArray(
+              payload.audio,
+            )
+          ) {
+            audioBuffer =
+              new Uint8Array(
+                payload.audio,
+              ).buffer;
+          }
+
+          // ----------------------------------------------------
+          // Unknown format
+          // ----------------------------------------------------
+
+          else {
+            console.error(
+              '[Kiosk] Unsupported audio format:',
+              payload.audio,
             );
 
             setState('listening');
@@ -637,177 +701,135 @@ const stopRecording = () => {
             return;
           }
 
-          console.log(
-            '[Kiosk] Greeting audio bytes:',
-            arrayBuffer.byteLength,
-          );
+          // ------------------------------------------------------
+          // Clean previous audio
+          // ------------------------------------------------------
 
-          // --------------------------------------------------
-          // Create playable audio
-          // --------------------------------------------------
+          cleanupAudio();
 
-          const blob = new Blob(
-            [arrayBuffer],
-            {
-              type: 'audio/mpeg',
-            },
-          );
+          // ------------------------------------------------------
+          // Create browser audio URL
+          // ------------------------------------------------------
 
-          const objectUrl =
-            URL.createObjectURL(blob);
+          const audioBlob =
+            new Blob(
+              [audioBuffer],
+              {
+                type: 'audio/mpeg',
+              },
+            );
 
-          audioUrlRef.current = objectUrl;
+          const audioUrl =
+            URL.createObjectURL(
+              audioBlob,
+            );
+
+          audioUrlRef.current =
+            audioUrl;
 
           const audio =
-            new Audio(objectUrl);
+            new Audio(audioUrl);
 
-          currentAudioRef.current = audio;
+          currentAudioRef.current =
+            audio;
 
-          // --------------------------------------------------
-          // TTS started
-          // --------------------------------------------------
+          // ------------------------------------------------------
+          // Audio starts
+          // ------------------------------------------------------
 
           audio.onplay = () => {
             console.log(
-              '[Kiosk] Greeting audio started.',
+              '[Kiosk] TTS started.',
             );
 
             setState('talking');
           };
 
-          // --------------------------------------------------
-          // TTS finished
-          //
-          // THIS IS WHERE RECORDING STARTS.
-          // --------------------------------------------------
+          // ------------------------------------------------------
+          // Audio finishes
+          // ------------------------------------------------------
 
           audio.onended = () => {
             console.log(
-              '[Kiosk] Greeting audio ended.',
+              '[Kiosk] TTS finished.',
             );
 
             cleanupAudio();
 
-            // Customer can now answer.
+            // The backend has already told us
+            // what the next business state is.
+            //
+            // The avatar now starts listening.
             setState('listening');
 
-            // Start microphone automatically.
             startRecording();
           };
 
-          // --------------------------------------------------
-          // TTS playback error
-          // --------------------------------------------------
+          // ------------------------------------------------------
+          // Audio error
+          // ------------------------------------------------------
 
           audio.onerror = (event) => {
             console.error(
-              '[Kiosk] Greeting audio playback error:',
+              '[Kiosk] Audio playback failed:',
               event,
             );
 
             cleanupAudio();
 
-            // We still allow the customer to answer.
+            // Even if TTS playback fails,
+            // continue with the kiosk interaction.
             setState('listening');
 
             startRecording();
           };
 
-          // --------------------------------------------------
-          // Audio metadata
-          // --------------------------------------------------
+          // ------------------------------------------------------
+          // Play TTS
+          // ------------------------------------------------------
 
-          audio.onloadedmetadata = () => {
-            console.log(
-              '[Kiosk] Greeting duration:',
-              audio.duration,
-              'seconds',
-            );
-          };
+          await audio.play();
 
-          // --------------------------------------------------
-          // Play greeting
-          // --------------------------------------------------
-
-          audio
-            .play()
-            .then(() => {
-              console.log(
-                '[Kiosk] Greeting audio play() succeeded.',
-              );
-            })
-            .catch((error) => {
-              console.error(
-                '[Kiosk] Failed to play greeting automatically:',
-                error,
-              );
-
-              cleanupAudio();
-
-              setState('listening');
-
-              startRecording();
-            });
-        },
-      );
-
-    // Join the gate AFTER subscribing.
-    joinGateRoom(gateId);
-
-    // --------------------------------------------------
-    // Component cleanup
-    // --------------------------------------------------
-
-    return () => {
-      unsubscribe();
-
-      cleanupAudio();
-
-      const recorder =
-        mediaRecorderRef.current;
-
-      if (
-        recorder &&
-        recorder.state !== 'inactive'
-      ) {
-        try {
-          recorder.stop();
+          console.log(
+            '[Kiosk] Playing TTS audio.',
+          );
         } catch (error) {
           console.error(
-            '[Kiosk] Error stopping recorder during cleanup:',
+            '[Kiosk] Failed to play OUTPUT audio:',
             error,
           );
+
+          cleanupAudio();
+
+          setState('listening');
+
+          startRecording();
         }
-      }
+      },
+    );
 
-      mediaRecorderRef.current = null;
+    // ----------------------------------------------------------
+    // Join gate room AFTER subscription is ready
+    // ----------------------------------------------------------
 
+    joinGateRoom(gateId);
+
+    return () => {
+      console.log(
+        `[Kiosk] Cleaning up OUTPUT listener for ${gateId}`,
+      );
+
+      unsubscribe();
+
+      stopRecording();
       cleanupRecording();
+      cleanupAudio();
     };
   }, [gateId]);
 
-  // --------------------------------------------------
-  // Temporary testing buttons
-  // --------------------------------------------------
-
-  const handleChoice = (
-    choice: 'yes' | 'no',
-  ) => {
-    console.log(
-      `[Kiosk] Test button selected: ${choice}`,
-    );
-
-    console.log(
-      `[Kiosk] Current session: ${sessionId}`,
-    );
-
-    // These buttons are ONLY for UI testing.
-    // They do NOT replace the voice flow.
-  };
-
-  // --------------------------------------------------
-  // UI
-  // --------------------------------------------------
+  // ------------------------------------------------------------
+  // Render
+  // ------------------------------------------------------------
 
   return (
     <main
@@ -817,158 +839,52 @@ const stopRecording = () => {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 28,
-        background: '#0c0a14',
-        color: '#f5f0e8',
-        fontFamily: 'system-ui, sans-serif',
-        padding: '24px',
-        position: 'relative',
+        gap: '24px',
       }}
     >
-      {/* Avatar */}
       <KioskAvatar
         state={state}
         size={340}
       />
 
-      {/* Message */}
-      {message && (
-        <div
-          style={{
-            maxWidth: 500,
-            width: '100%',
-            padding: '16px 24px',
-            borderRadius: 16,
-            background: '#1c1530',
-            border: '1px solid #3d2f5c',
-            textAlign: 'center',
-            fontSize: 18,
-            lineHeight: 1.5,
-            boxShadow:
-              '0 4px 12px rgba(0,0,0,0.3)',
-            direction: 'rtl',
-          }}
-        >
-          {message}
-        </div>
-      )}
+      <div
+        style={{
+          textAlign: 'center',
+        }}
+      >
+        <p>
+          Gate: {gateId}
+        </p>
 
-      {/* Recording indicator */}
-      {isRecording && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            fontSize: 16,
-            direction: 'rtl',
-          }}
-        >
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              background: '#ef5350',
-              display: 'inline-block',
-            }}
-          />
 
-          جاري الاستماع...
-        </div>
-      )}
+        {message && (
+          <p>
+            {message}
+          </p>
+        )}
 
-      {/* Temporary testing buttons */}
-      {state === 'listening' && !isRecording && (
-        <div
-          style={{
-            display: 'flex',
-            gap: 16,
-          }}
-        >
-          <button
-            onClick={() =>
-              handleChoice('yes')
-            }
-            style={{
-              padding: '12px 32px',
-              borderRadius: 999,
-              border: 'none',
-              background: '#2e7d32',
-              color: '#ffffff',
-              cursor: 'pointer',
-              fontSize: 18,
-              fontWeight: 'bold',
-            }}
-          >
-            نعم
-          </button>
+      </div>
 
-          <button
-            onClick={() =>
-              handleChoice('no')
-            }
-            style={{
-              padding: '12px 32px',
-              borderRadius: 999,
-              border: 'none',
-              background: '#c62828',
-              color: '#ffffff',
-              cursor: 'pointer',
-              fontSize: 18,
-              fontWeight: 'bold',
-            }}
-          >
-            لا
-          </button>
-        </div>
-      )}
-
-      {/* Audio unlock overlay */}
       {!audioUnlocked && (
-  <button
-    onClick={unlockAudio}
-    style={{
-      padding: '14px 36px',
-      borderRadius: 999,
-      border: 'none',
-      background: '#6fd6c6',
-      color: '#14121f',
-      cursor: 'pointer',
-      fontSize: 18,
-      fontWeight: 'bold',
-    }}
-  >
-    Start Kiosk
-  </button>
-)}
+        <button
+          onClick={unlockAudio}
+          style={{
+            padding: '12px 24px',
+            fontSize: '16px',
+            cursor: 'pointer',
+          }}
+        >
+          Start Kiosk
+        </button>
+      )}
     </main>
   );
 }
 
-// --------------------------------------------------
-// Page wrapper
-// --------------------------------------------------
-
 export default function KioskPage() {
   return (
-    <Suspense
-      fallback={
-        <div
-          style={{
-            minHeight: '100vh',
-            background: '#0c0a14',
-            color: '#f5f0e8',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          Loading Kiosk...
-        </div>
-      }
-    >
-      <KioskContent />
+    <Suspense fallback={<div>Loading...</div>}>
+      <KioskPageContent />
     </Suspense>
   );
 }

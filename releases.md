@@ -140,3 +140,37 @@ LPR → SAP Lookup → Kiosk Session → Greeting → Customer Confirmation → 
 ### Next
 - Update the frontend to consume `OUTPUT` and send `INPUT`.
 - Implement phone-number input handling and continue the check-in flow.
+
+## [2026-09-11] Kiosk Frontend INPUT/OUTPUT Integration & UI Updates
+
+- Updated the kiosk frontend to use the new generic Socket.IO communication:
+  - `OUTPUT` for backend → frontend communication.
+  - `INPUT` for frontend → backend communication.
+- Added `KioskOutputPayload` and `KioskInputPayload` interfaces to structure kiosk communication.
+- Replaced the previous `SEND_GREETING` subscription with the generic `OUTPUT` listener.
+- Replaced the previous `confirming.phone` event with the generic `INPUT` event.
+- Updated the frontend to keep track of the backend kiosk session ID and business state internally.
+- Updated the voice interaction flow:
+  - Receive `OUTPUT`.
+  - Save session information and backend state.
+  - Play TTS audio.
+  - Switch avatar to `talking`.
+  - After TTS finishes, switch avatar to `listening`.
+  - Record customer speech.
+  - Stop recording when speech ends.
+  - Switch avatar back to `idle` while waiting for the backend.
+  - Send the recorded audio through `INPUT`.
+- Added support for different binary audio formats received through Socket.IO.
+- Kept the frontend avatar state separate from the backend kiosk business state.
+- Removed the temporary YES/NO buttons since customer interaction is handled through voice.
+- Simplified the kiosk UI:
+  - Removed session ID, gate ID, backend state, and avatar state from the screen.
+  - Removed the visible recording/debug information.
+  - Added a full-screen dark background.
+  - Kept the kiosk focused on the avatar/customer interaction.
+- Updated the frontend Socket.IO fallback URL to the NestJS middleware backend (`localhost:3000`).
+
+### Next
+- Complete the `CONFIRMING_PHONE` business logic.
+- Implement the YES branch and continue the check-in flow.
+- Implement phone-number collection for the NO branch.

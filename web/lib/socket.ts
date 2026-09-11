@@ -1,9 +1,25 @@
 import { io, Socket } from 'socket.io-client';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001';
+const WS_URL =
+  process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001';
 
 let socket: Socket | null = null;
 let currentGateId: string | null = null;
+
+export interface KioskOutputPayload {
+  sessionId: string;
+  gateId: string;
+  state: string;
+  message: string;
+  audio: any;
+}
+
+export interface KioskInputPayload {
+  sessionId: string;
+  gateId: string;
+  state: string;
+  audio: ArrayBuffer;
+}
 
 export function getSocket(): Socket {
   if (!socket) {
@@ -14,17 +30,28 @@ export function getSocket(): Socket {
       reconnectionDelay: 1000,
     });
 
-    // Reconnect handling: every time connect event fires, re-emit kiosk.join
     socket.on('connect', () => {
-      console.log('[Socket] Connected / Reconnected. Socket ID:', socket?.id);
+      console.log(
+        '[Socket] Connected / Reconnected. Socket ID:',
+        socket?.id,
+      );
+
       if (currentGateId) {
-        console.log(`[Socket] Re-emitting kiosk.join for gateId: ${currentGateId}`);
-        socket.emit('kiosk.join', { gateId: currentGateId });
+        console.log(
+          `[Socket] Re-emitting kiosk.join for gateId: ${currentGateId}`,
+        );
+
+        socket.emit('kiosk.join', {
+          gateId: currentGateId,
+        });
       }
     });
 
     socket.on('disconnect', (reason) => {
-      console.warn('[Socket] Disconnected:', reason);
+      console.warn(
+        '[Socket] Disconnected:',
+        reason,
+      );
     });
   }
 
@@ -33,55 +60,96 @@ export function getSocket(): Socket {
 
 export function joinGateRoom(gateId: string): void {
   currentGateId = gateId;
+
   const s = getSocket();
+
   if (s.connected) {
-    console.log(`[Socket] Joining room for gate: ${gateId}`);
-    s.emit('kiosk.join', { gateId });
+    console.log(
+      `[Socket] Joining room for gate: ${gateId}`,
+    );
+
+    s.emit('kiosk.join', {
+      gateId,
+    });
   }
 }
 
-export function subscribeToSapResult(callback: (data: any) => void): () => void {
+/**
+ * Backend → Frontend
+ *
+ * All kiosk outputs use one Socket.IO event.
+ */
+export function subscribeToOutput(
+  callback: (data: KioskOutputPayload) => void,
+): () => void {
   const s = getSocket();
+
+  s.on('OUTPUT', callback);
+
+  return () => {
+    s.off('OUTPUT', callback);
+  };
+}
+
+/**
+ * Frontend → Backend
+ *
+ * All kiosk inputs use one Socket.IO event.
+ */
+export function emitInput(
+  payload: KioskInputPayload,
+): void {
+  const s = getSocket();
+
+  console.log(
+    '[Socket] Sending INPUT:',
+    {
+      sessionId: payload.sessionId,
+      gateId: payload.gateId,
+      state: payload.state,
+      audioBytes: payload.audio.byteLength,
+    },
+  );
+
+  s.emit('INPUT', payload);
+}
+
+// --------------------------------------------------
+// Existing general events
+// --------------------------------------------------
+
+export function subscribeToSapResult(
+  callback: (data: any) => void,
+): () => void {
+  const s = getSocket();
+
   s.on('sap.result', callback);
+
   return () => {
     s.off('sap.result', callback);
   };
 }
 
-export function subscribeToGateState(callback: (data: any) => void): () => void {
+export function subscribeToGateState(
+  callback: (data: any) => void,
+): () => void {
   const s = getSocket();
+
   s.on('gate.state', callback);
+
   return () => {
     s.off('gate.state', callback);
   };
 }
 
-
-export function subscribeToKioskState(callback: (data: any) => void): () => void {
+export function subscribeToKioskState(
+  callback: (data: any) => void,
+): () => void {
   const s = getSocket();
+
   s.on('kiosk.state', callback);
+
   return () => {
     s.off('kiosk.state', callback);
   };
 }
-
-export function subscribeToSendGreeting(callback: (data: any) => void): () => void {
-  const s = getSocket();
-  s.on('SEND_GREETING', callback);
-  return () => {
-    s.off('SEND_GREETING', callback);
-  };
-}
-
-export function emitConfirmingPhone(payload: {
-  sessionId: string;
-  gateId: string;
-  audio: ArrayBuffer;
-}): void {
-  const s = getSocket();
-  s.emit('confirming.phone', payload);
-}
-
-
-
-
