@@ -174,3 +174,128 @@ LPR → SAP Lookup → Kiosk Session → Greeting → Customer Confirmation → 
 - Complete the `CONFIRMING_PHONE` business logic.
 - Implement the YES branch and continue the check-in flow.
 - Implement phone-number collection for the NO branch.
+
+## [2026-09-11] Kiosk Frontend INPUT/OUTPUT Integration & UI Updates
+
+- Updated the kiosk frontend to use the new generic Socket.IO communication:
+  - `OUTPUT` for backend → frontend communication.
+  - `INPUT` for frontend → backend communication.
+- Added `KioskOutputPayload` and `KioskInputPayload` interfaces to structure kiosk communication.
+- Replaced the previous `SEND_GREETING` subscription with the generic `OUTPUT` listener.
+- Replaced the previous `confirming.phone` event with the generic `INPUT` event.
+- Updated the frontend to keep track of the backend kiosk session ID and business state internally.
+- Updated the voice interaction flow:
+  - Receive `OUTPUT`.
+  - Save session information and backend state.
+  - Play TTS audio.
+  - Switch avatar to `talking`.
+  - After TTS finishes, switch avatar to `listening`.
+  - Record customer speech.
+  - Stop recording when speech ends.
+  - Switch avatar back to `idle` while waiting for the backend.
+  - Send the recorded audio through `INPUT`.
+- Added support for different binary audio formats received through Socket.IO.
+- Kept the frontend avatar state separate from the backend kiosk business state.
+- Removed the temporary YES/NO buttons since customer interaction is handled through voice.
+- Simplified the kiosk UI:
+  - Removed session ID, gate ID, backend state, and avatar state from the screen.
+  - Removed visible recording/debug information.
+  - Added a full-screen dark background.
+  - Kept the kiosk focused on the avatar/customer interaction.
+- Updated the frontend Socket.IO fallback URL to the NestJS middleware backend (`localhost:3000`).
+
+### Kiosk Voice Check-in Logic
+
+- Implemented the `CONFIRMING_PHONE` voice flow:
+  - Customer audio is converted to text using the STT adapter.
+  - Transcript is processed by the NLU adapter.
+  - `YES` confirms the phone number.
+  - `NO` moves the session to `PHONE_ASKING`.
+  - Unknown responses are logged for future retry handling.
+- Implemented phone-number collection for the `PHONE_ASKING` state:
+  - Customer audio is processed through STT.
+  - NLU extracts and validates the Egyptian mobile number.
+  - The extracted phone number is saved to the kiosk session.
+  - The updated phone number is confirmed again through the greeting flow.
+- Kept phone-number extraction and validation inside the NLU adapter instead of duplicating the logic in `KioskService`.
+- Updated session handling so the Redis-backed kiosk session remains the source of truth for the current workflow state and customer data.
+
+### Gate Opening
+
+- Connected the `YES` confirmation branch to the Gate adapter.
+- When the customer confirms the phone number:
+  - Session moves to `CHECKING_IN`.
+  - `gateAdapter.openGate(gateId)` is called using the gate associated with the kiosk session.
+  - Successful gate opening updates the session to `COMPLETED`.
+  - `CHECKIN_COMPLETED` is emitted with the gate status.
+- Added gate-opening failure handling and logging.
+- Updated `KioskGateway` to broadcast gate/check-in status through the existing `gate.state` Socket.IO event.
+- Updated the console flow to receive the gate status and display the gate as `OPENED`.
+
+### Next
+
+
+- Add retry/prompt behavior for unrecognized YES/NO responses.
+- Add retry behavior when the customer provides an invalid phone number.
+- Complete the gate-opening failure UI/voice response.
+- Refine the check-in completion flow and reset the kiosk for the next customer.
+- Restrict `gate.state` broadcasts to the corresponding gate room instead of broadcasting to all connected consoles.
+
+
+**## [2026-09-12] Add Unknown Customer Name Collection & Kiosk On-Screen Keyboard**
+
+**\*\*By:\*\*** @cline
+
+**\*\*Requested:\*\*** Complete the unknown-SAP-customer branch by collecting the customer's name through the kiosk UI before continuing to phone collection.
+
+**\*\*Changes:\*\***
+
+\- `middleware/src/kiosk/kiosk.service.ts` — Added the `NAME_ASKING` flow for customers not found in SAP.
+
+\- `middleware/src/kiosk/kiosk.service.ts` — Updated name handling to receive the customer's name through the generic `INPUT` payload `text` field.
+
+\- `middleware/src/kiosk/kiosk.service.ts` — Saved the entered customer name in the Redis-backed kiosk session.
+
+\- `middleware/src/kiosk/kiosk.service.ts` — Continued automatically to `PHONE_ASKING` after a valid name was submitted.
+
+\- `middleware/src/kiosk/kiosk.gateway.ts` — Continued using the generic `INPUT` / `OUTPUT` transport events without introducing additional Socket.IO events for name submission.
+
+\- `web/lib/socket.ts` — Updated `KioskInputPayload` to support both audio and text input.
+
+\- `web/lib/socket.ts` — Updated input logging to safely handle text-only inputs without assuming that an audio buffer exists.
+
+\- `web/app/kiosk/page.tsx` — Added a dedicated name-input UI for the `NAME_ASKING` state.
+
+\- `web/app/kiosk/page.tsx` — Added an on-screen Arabic keyboard for kiosk-based name entry.
+
+\- `web/app/kiosk/page.tsx` — Added support for Arabic letter input, spaces, backspace, clear, and name submission.
+
+\- `web/app/kiosk/page.tsx` — Kept TTS playback active for the name prompt before allowing customer input.
+
+\- `web/app/kiosk/page.tsx` — Prevented microphone recording from starting during `NAME_ASKING`, since this state uses text input instead of voice.
+
+\- `web/app/kiosk/page.tsx` — Preserved the separation between backend kiosk business state and frontend avatar state.
+
+**\*\*Unknown Customer Flow:\*\***
+
+LPR → SAP Lookup → Customer Not Found → Create Session → `NAME_ASKING` → TTS Prompt → On-Screen Arabic Keyboard → Customer Name → `INPUT` → Save Name → `PHONE_ASKING`
+
+**\*\*Notes:\*\***
+
+\- The backend remains the source of truth for the kiosk workflow state.
+
+\- The frontend only determines how the customer provides the requested input; it does not perform business-state transitions.
+
+\- Voice states continue to use audio input, while `NAME_ASKING` uses text input.
+
+\- The existing generic `INPUT` / `OUTPUT` communication architecture is preserved.
+
+**### Next**
+
+\- Add retry/prompt behavior for unrecognized YES/NO responses.
+
+\- Add retry behavior for invalid phone numbers.
+
+\- Complete gate-opening failure feedback.
+
+\- Reset the kiosk session after check-in completion.

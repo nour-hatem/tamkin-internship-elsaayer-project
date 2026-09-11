@@ -18,7 +18,8 @@ export interface KioskInputPayload {
   sessionId: string;
   gateId: string;
   state: string;
-  audio: ArrayBuffer;
+  audio?: ArrayBuffer;
+  text?:string
 }
 
 export function getSocket(): Socket {
@@ -107,7 +108,8 @@ export function emitInput(
       sessionId: payload.sessionId,
       gateId: payload.gateId,
       state: payload.state,
-      audioBytes: payload.audio.byteLength,
+      audioBytes: payload.audio?.byteLength ?? 0,
+      text: payload.text,
     },
   );
 

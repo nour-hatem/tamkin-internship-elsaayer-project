@@ -76,7 +76,7 @@ export class KioskService {
 
       currentState: payload.found
         ? KioskStateEnum.GREETING
-        : KioskStateEnum.DATA_ASKING,
+        : KioskStateEnum.NAME_ASKING,
     });
 
     this.logger.log(
@@ -85,6 +85,8 @@ export class KioskService {
 
     if (payload.found) {
       await this.greeting(session);
+    }else{
+      await this.askForName(session)
     }
 
     // DATA_ASKING will be implemented separately.
@@ -124,6 +126,9 @@ export class KioskService {
       case KioskStateEnum.PHONE_ASKING:
         await this.handlePhoneInput(session, payload);
         break;
+      case KioskStateEnum.NAME_ASKING:
+        await this.handleNameInput(session, payload);
+        break;  
 
       default:
         this.logger.warn(
@@ -161,58 +166,7 @@ export class KioskService {
 
     // 3. Customer confirmed the phone number.
 if (result.intent === 'YES') {
-  this.logger.log(
-    `[KioskService] Customer confirmed phone for session ${session.sessionId}`,
-  );
-
-  await this.sessionService.updateSession(
-    session.sessionId,
-    {
-      currentState: KioskStateEnum.CHECKING_IN,
-    },
-  );
-
-  try {
-    await this.gateAdapter.openGate(session.gateId);
-
-    this.logger.log(
-      `[KioskService] Gate ${session.gateId} opened successfully`,
-    );
-
-    await this.sessionService.updateSession(
-      session.sessionId,
-      {
-        currentState: KioskStateEnum.COMPLETED,
-      },
-    );
-
-    this.eventEmitter.emit(
-      EVENTS.CHECKIN_COMPLETED,
-      {
-        sessionId: session.sessionId,
-        gateId: session.gateId,
-        gateOpened: true,
-      },
-    );
-  } catch (error) {
-    this.logger.error(
-      `[KioskService] Failed to open gate ${session.gateId}`,
-      error,
-    );
-
-    // Keep the session in CHECKING_IN for now.
-    // We can define the failure/retry behavior separately.
-    this.eventEmitter.emit(
-      EVENTS.CHECKIN_COMPLETED,
-      {
-        sessionId: session.sessionId,
-        gateId: session.gateId,
-        gateOpened: false,
-      },
-    );
-  }
-
-  return;
+  await this.complete(session)
 }
 
     // 4. Customer rejected the phone number.
@@ -229,33 +183,36 @@ if (result.intent === 'YES') {
     // Retry behavior will be implemented later.
   }
 
-  /**
-   * Asks the customer for their phone number.
-   */
-  private async askForPhone(session: KioskSession) {
-    const message = 'ما هو رقمك؟';
+private async handleNameInput(
+  session: KioskSession,
+  payload: KioskInputDto,
+) {
+  this.logger.log(
+    `[KioskService] Name input received for session ${session.sessionId}`,
+  );
 
-    const audio = await this.ttsAdapter.synthesize(
-      message,
+  const name = payload.text?.trim();
+
+  if (!name) {
+    this.logger.warn(
+      `[KioskService] Customer name was not provided`,
     );
-
-    // The next input from the frontend should be
-    // interpreted as a phone number.
-    await this.sessionService.updateSession(
-      session.sessionId,
-      {
-        currentState: KioskStateEnum.PHONE_ASKING,
-      },
-    );
-
-    this.kioskGateway.sendOutput({
-      sessionId: session.sessionId,
-      gateId: session.gateId,
-      state: KioskStateEnum.PHONE_ASKING,
-      message,
-      audio,
-    });
+    return;
   }
+
+  this.logger.log(
+    `[KioskService] Customer name received: ${name}`,
+  );
+
+  const updatedSession = await this.sessionService.updateSession(
+    session.sessionId,
+    {
+      customerName: name,
+    },
+  );
+
+  await this.askForPhone(updatedSession);
+}
 
   /**
    * Handles audio received after the backend asked
@@ -357,6 +314,117 @@ if (result.intent === 'YES') {
       sessionId: session.sessionId,
       gateId: session.gateId,
       state: KioskStateEnum.CONFIRMING_PHONE,
+      message,
+      audio,
+    });
+  }
+
+
+  private async askForName(session: KioskSession){
+    const message =
+    'أهلاً بك، من فضلك أدخل اسمك'
+
+      const audio = await this.ttsAdapter.synthesize(
+      message,
+    );
+
+    await this.sessionService.updateSession(
+      session.sessionId,
+      {
+        currentState: KioskStateEnum.NAME_ASKING,
+      },
+    );
+
+      this.kioskGateway.sendOutput({
+      sessionId: session.sessionId,
+      gateId: session.gateId,
+      state: KioskStateEnum.NAME_ASKING,
+      message,
+      audio,
+    });
+
+
+  }
+
+  private async complete(session:KioskSession){
+    this.logger.log(
+    `[KioskService] Customer confirmed phone for session ${session.sessionId}`,
+  );
+
+  await this.sessionService.updateSession(
+    session.sessionId,
+    {
+      currentState: KioskStateEnum.CHECKING_IN,
+    },
+  );
+
+  try {
+    await this.gateAdapter.openGate(session.gateId);
+
+    this.logger.log(
+      `[KioskService] Gate ${session.gateId} opened successfully`,
+    );
+
+    await this.sessionService.updateSession(
+      session.sessionId,
+      {
+        currentState: KioskStateEnum.COMPLETED,
+      },
+    );
+
+    this.eventEmitter.emit(
+      EVENTS.CHECKIN_COMPLETED,
+      {
+        sessionId: session.sessionId,
+        gateId: session.gateId,
+        gateOpened: true,
+      },
+    );
+  } catch (error) {
+    this.logger.error(
+      `[KioskService] Failed to open gate ${session.gateId}`,
+      error,
+    );
+
+    // Keep the session in CHECKING_IN for now.
+    // We can define the failure/retry behavior separately.
+    this.eventEmitter.emit(
+      EVENTS.CHECKIN_COMPLETED,
+      {
+        sessionId: session.sessionId,
+        gateId: session.gateId,
+        gateOpened: false,
+      },
+    );
+  }
+
+  return;
+
+  }
+
+    /**
+   * Asks the customer for their phone number.
+   */
+  private async askForPhone(session: KioskSession) {
+    const message = 'ما هو رقمك؟';
+
+    const audio = await this.ttsAdapter.synthesize(
+      message,
+    );
+
+    // The next input from the frontend should be
+    // interpreted as a phone number.
+    await this.sessionService.updateSession(
+      session.sessionId,
+      {
+        currentState: KioskStateEnum.PHONE_ASKING,
+      },
+    );
+
+    this.kioskGateway.sendOutput({
+      sessionId: session.sessionId,
+      gateId: session.gateId,
+      state: KioskStateEnum.PHONE_ASKING,
       message,
       audio,
     });

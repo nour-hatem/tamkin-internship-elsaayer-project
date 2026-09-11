@@ -4,5 +4,6 @@ export class KioskInputDto {
   sessionId: string;
   gateId: string;
   state: KioskStateEnum;
-  audio: Buffer;
+  audio?: Buffer;
+  text?:string;
 }
