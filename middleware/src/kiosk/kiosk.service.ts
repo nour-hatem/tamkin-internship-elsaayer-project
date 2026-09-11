@@ -17,6 +17,7 @@ import {
 
 import { KioskSession } from './interfaces/kiosk-session.interface';
 import { KioskInputDto } from './interfaces/KioskInputDto';
+import { ISapAdapter } from 'src/sap/ports/sap.port';
 
 @Injectable()
 export class KioskService {
@@ -34,6 +35,7 @@ export class KioskService {
     @Inject('INluAdapter')
     private readonly nluAdapter: INluAdapter,
     private readonly eventEmitter: EventEmitter2,
+    //private readonly sapAdapter:ISapAdapter
   ) {}
 
   /**
@@ -220,10 +222,63 @@ export class KioskService {
       `[KioskService] Phone input received for session ${session.sessionId}`,
     );
 
+    // 1. Convert customer's audio to text.
+    const transcript = await this.sttAdapter.transcribe(
+      payload.audio,
+    );
+
+    this.logger.log(
+      `[KioskService] Transcript: ${transcript}`,
+    );
+
+    // 2. Understand the customer's answer.
+    const result = await this.nluAdapter.parse(
+      transcript,
+    );
+
+    this.logger.log(
+      `[KioskService] NLU result: ${JSON.stringify(result)}`,
+    );
+
+      // 3. Make sure NLU actually detected a phone number.
+  if (result.intent !== 'PHONE') {
+    this.logger.warn(
+      `[KioskService] Could not extract a valid phone number`,
+    );
+
     // TODO:
-    // STT -> NLU -> extract phone number
-    // update session
-    // continue check-in flow
+    // Ask the customer to provide the phone number again.
+    return;
+  }
+
+  // 4. Get the phone number extracted by NLU.
+  const phone = (result.entities?.phone).toString();
+
+  if (!phone) {
+    this.logger.warn(
+      `[KioskService] NLU returned PHONE intent without a phone entity`,
+    );
+
+    return;
+  }
+
+  this.logger.log(
+    `[KioskService] Phone number extracted: ${phone}`,
+  );
+
+  // 5. Save the phone number in the session.
+  const updatedSession=await this.sessionService.updateSession(
+    session.sessionId,
+    {
+      phone,
+    },
+  );
+  //6.Confirm the phone again
+  await this.greeting(updatedSession)
+
+  // 6. Continue to the next check-in step.
+ // await this.continueCheckIn(session, phone);
+
   }
 
   /**
