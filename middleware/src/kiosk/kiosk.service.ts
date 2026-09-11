@@ -75,7 +75,7 @@ this.logger.log(
 
 Greeting=async(session)=>{
 const audio = await this.ttsAdapter.synthesize(`أهلاً بك ${session.customerName} رقمك هو ${session.phone} فقط قل نعم او لا`);
-
+//this.logger.log('TTS audio size:', audio.length, 'bytes');
   this.kioskGateway.sendGreeting({
     sessionId: session.sessionId,
     state: KioskStateEnum.GREETING,
@@ -83,6 +83,9 @@ const audio = await this.ttsAdapter.synthesize(`أهلاً بك ${session.custom
     audio,
     gateId:session.gateId
   });
+  console.log('[KioskService] About to send greeting');
+console.log('[KioskService] gateId:', session.gateId);
+console.log('[KioskService] sessionId:', session.sessionId);
 }
 }
 

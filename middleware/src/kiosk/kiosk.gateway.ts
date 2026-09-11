@@ -52,18 +52,31 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const gateId = data?.gateId || 'gate-1';
     const roomName = `gate:${gateId}`;
+
+    // Leave any other gate rooms the client is currently in
+    for (const room of client.rooms) {
+      if (room.startsWith('gate:') && room !== roomName) {
+        client.leave(room);
+        this.logger.log(`Client ${client.id} left previous room ${room}`);
+      }
+    }
+
     client.join(roomName);
     this.logger.log(`Client ${client.id} joined room ${roomName}`);
+    this.logger.log(`Client ${client.id} active rooms: ${JSON.stringify(Array.from(client.rooms))}`);
 
     const activeApproach = this.configService.get<string>('ACTIVE_APPROACH', 'voice');
 
-    // Respond immediately with initial state
-    client.emit('kiosk.state', {
+    const statePayload = {
       gateId,
       status: 'JOINED_ROOM',
       activeApproach,
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    // Respond immediately to the client and broadcast to the room (so the Console knows)
+    client.emit('kiosk.state', statePayload);
+    this.server.to(roomName).emit('kiosk.state', statePayload);
 
     return { event: 'kiosk.joined', gateId };
   }
@@ -75,11 +88,12 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
   //   this.server.emit('sap.result', payload);
   // }
 
-  sendGreeting(sendGreeting:SendGreetingDTO){
-    const room=sendGreeting.gateId
-    this.server.to(room).emit("SEND_GREETING",sendGreeting)
-  } 
 
+sendGreeting(payload: SendGreetingDTO) {
+  const roomName = `gate:${payload.gateId}`;
+  this.logger.log(`[KioskGateway] EMITTING SEND_GREETING to room: ${roomName} (gateId: ${payload.gateId})`);
+  this.server.to(roomName).emit('SEND_GREETING', payload);
+}
 
 
   @OnEvent(EVENTS.CHECKIN_COMPLETED)
