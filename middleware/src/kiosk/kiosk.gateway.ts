@@ -43,12 +43,16 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const gateId = data?.gateId || 'gate-1';
     const roomName = `gate:${gateId}`;
+
     client.join(roomName);
+
     this.logger.log(`Client ${client.id} joined room ${roomName}`);
 
-    const activeApproach = this.configService.get<string>('ACTIVE_APPROACH', 'voice');
+    const activeApproach = this.configService.get<string>(
+      'ACTIVE_APPROACH',
+      'voice',
+    );
 
-    // Respond immediately with initial state
     client.emit('kiosk.state', {
       gateId,
       status: 'JOINED_ROOM',
@@ -59,16 +63,39 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { event: 'kiosk.joined', gateId };
   }
 
+  @OnEvent(EVENTS.CHECKIN_DISPLAY_UPDATED)
+  handleCheckinDisplayUpdated(payload: {
+    gateId: string;
+    token: string | null;
+  }) {
+    const roomName = `gate:${payload.gateId}`;
+
+    this.logger.log(
+      `Broadcasting check-in display update to ${roomName}`,
+    );
+
+    this.server.to(roomName).emit('checkin.display', {
+      gateId: payload.gateId,
+      token: payload.token,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
   handleSapLookup(payload: SapLookupResultDto) {
-    this.logger.log(`Broadcasting SAP result to gate rooms for plate: ${payload.plate}`);
-    // Broadcast to all connected gate rooms
+    this.logger.log(
+      `Broadcasting SAP result to gate rooms for plate: ${payload.plate}`,
+    );
+
     this.server.emit('sap.result', payload);
   }
 
   @OnEvent(EVENTS.CHECKIN_COMPLETED)
   handleCheckInCompleted(payload: CheckInResultDto) {
-    this.logger.log(`Broadcasting Gate/Check-in state update: opened=${payload.gateOpened}`);
+    this.logger.log(
+      `Broadcasting Gate/Check-in state update: opened=${payload.gateOpened}`,
+    );
+
     this.server.emit('gate.state', payload);
   }
 }
