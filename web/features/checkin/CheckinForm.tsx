@@ -35,46 +35,28 @@ export default function CheckinForm({
   const [message, setMessage] = useState('');
   const [ticketId, setTicketId] = useState('');
 
-  useEffect(() => {
-    async function loadTicket() {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+ useEffect(() => {
+  async function loadTicket() {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-        const response = await fetch(
-          `${apiUrl}/qr/ticket/${token}`,
-        );
+      const response = await fetch(
+        `${apiUrl}/qr/ticket/${token}`,
+      );
 
-        if (!response.ok) {
-          throw new Error(
-            'This QR code is expired or has already been used.',
-          );
-        }
-
-        const ticket: TicketData = await response.json();
-
-        setPlate(ticket.plate ?? '');
-        setName(ticket.name ?? '');
-        setPhone(ticket.phone ?? '');
-        setPlateLocked(ticket.plateLocked);
-        setSource(ticket.source);
-        setFallbackMode(false);
-      } catch {
-        // QR ticket is expired or already used.
-        // Fall back to the generic check-in flow.
+      if (response.status === 410) {
         try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-
-          const response = await fetch(
+          const displayResponse = await fetch(
             `${apiUrl}/qr/display/${gateId}`,
           );
 
-          if (!response.ok) {
+          if (!displayResponse.ok) {
             throw new Error(
               'Unable to load check-in information.',
             );
           }
 
-          const display = await response.json();
+          const display = await displayResponse.json();
 
           setPlate(display.plate ?? '');
           setName('');
@@ -86,23 +68,55 @@ export default function CheckinForm({
             'Your QR ticket has expired. Please complete the check-in manually.',
           );
         } catch {
-          setPlate('');
-          setName('');
-          setPhone('');
-          setPlateLocked(false);
-          setSource('GENERIC');
-          setFallbackMode(true);
+          setFallbackMode(false);
           setMessage(
-            'Your QR ticket has expired. Please complete the check-in manually.',
+            'Your QR ticket has expired, but the check-in information could not be loaded. Please try again.',
           );
         }
-      } finally {
-        setLoadingTicket(false);
-      }
-    }
 
-    loadTicket();
-  }, [token, gateId]);
+        return;
+      }
+
+      if (!response.ok) {
+        let errorMessage =
+          'Unable to load check-in information.';
+
+        try {
+          const data = await response.json();
+
+          if (typeof data.message === 'string') {
+            errorMessage = data.message;
+          }
+        } catch {
+          // Ignore invalid error response body.
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      const ticket: TicketData = await response.json();
+
+      setPlate(ticket.plate ?? '');
+      setName(ticket.name ?? '');
+      setPhone(ticket.phone ?? '');
+      setPlateLocked(ticket.plateLocked);
+      setSource(ticket.source);
+      setFallbackMode(false);
+      setMessage('');
+    } catch (error) {
+      setFallbackMode(false);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to load check-in information.',
+      );
+    } finally {
+      setLoadingTicket(false);
+    }
+  }
+
+  loadTicket();
+}, [token, gateId]);
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>,
@@ -113,7 +127,7 @@ export default function CheckinForm({
     setMessage('');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
       const endpoint = fallbackMode
         ? `${apiUrl}/checkin/submit`

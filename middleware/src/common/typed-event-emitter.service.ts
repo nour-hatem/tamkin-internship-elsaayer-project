@@ -22,7 +22,7 @@ export interface EventPayloadMap {
   [EVENTS.CHECKIN_SUBMITTED]: CheckinSubmittedPayload;
   [EVENTS.CHECKIN_DISPLAY_UPDATED]: {
     gateId: string;
-    token: string;
+    token: string | null;
   };
   [EVENTS.CHECKIN_COMPLETED]: CheckInResultDto;
   [EVENTS.GATE_OPEN]: {

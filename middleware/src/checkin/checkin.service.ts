@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -42,7 +41,7 @@ export class CheckInService {
 
       this.eventEmitter.emit(EVENTS.CHECKIN_COMPLETED, result);
 
-      throw new ConflictException(result);
+      return result;
     }
 
     // 2. Queue enqueue

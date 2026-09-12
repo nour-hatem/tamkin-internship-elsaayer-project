@@ -7,8 +7,8 @@ export class QrController {
   constructor(private readonly qrService: QrService) {}
 
   @Post('ticket')
-  async createTicket() {
-    return this.qrService.createTicket();
+  async createTicket(@Body() body: { gateId: string }) {
+    return this.qrService.createTicket(body.gateId);
   }
 
   @Post('checkin')
@@ -55,7 +55,6 @@ export class QrController {
     } catch {
       return {
         gateId,
-        mode: 'GENERIC',
         checkInUrl: null,
         plate: await this.qrService.getPlateHint(gateId),
         plateLocked: false,

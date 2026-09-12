@@ -66,7 +66,7 @@ export class KioskGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @OnEvent(EVENTS.CHECKIN_DISPLAY_UPDATED)
   handleCheckinDisplayUpdated(payload: {
     gateId: string;
-    token: string;
+    token: string | null;
   }) {
     const roomName = `gate:${payload.gateId}`;
 

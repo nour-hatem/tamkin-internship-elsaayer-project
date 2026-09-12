@@ -71,22 +71,18 @@ export default function ConsolePage() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeToCheckinDisplay(async (data) => {
-      if (data.gateId !== gateId) {
-        return;
-      }
-
-      addLog(`QR display updated for ${data.gateId}`);
-
+    const loadDisplay = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
         const response = await fetch(
           `${apiUrl}/qr/display/${gateId}`,
         );
 
         if (!response.ok) {
-          return;
+          throw new Error(
+            'Failed to load QR display.',
+          );
         }
 
         const display = await response.json();
@@ -109,14 +105,37 @@ export default function ConsolePage() {
           );
 
           setQrMessage('');
+        } else {
+          // No active QR ticket for this gate.
+          // Clear any stale QR state from the console.
+          setCheckInUrl('');
+          setExpiresAt('');
+          setRemainingSeconds(0);
+          setQrMessage('');
         }
       } catch (error) {
         console.error(
-          '[Console] Failed to refresh QR display:',
+          '[Console] Failed to load QR display:',
           error,
         );
       }
-    });
+    };
+
+    // Load the current QR immediately when the console
+    // opens or when the selected gate changes.
+    loadDisplay();
+
+    const unsubscribe = subscribeToCheckinDisplay(
+      async (data) => {
+        if (data.gateId !== gateId) {
+          return;
+        }
+
+        addLog(`QR display updated for ${data.gateId}`);
+
+        await loadDisplay();
+      },
+    );
 
     return unsubscribe;
   }, [gateId]);
@@ -149,10 +168,16 @@ export default function ConsolePage() {
     setQrMessage('');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
       const response = await fetch(`${apiUrl}/qr/ticket`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          gateId,
+        }),
       });
 
       if (!response.ok) {

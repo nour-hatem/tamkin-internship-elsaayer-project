@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   GoneException,
   Injectable,
   Logger,
@@ -50,9 +51,12 @@ export class QrService {
     // Make this ticket the current ticket displayed for the gate.
     await this.qrTicketRepository.setCurrentTicket(gateId, token);
 
-    // Keep the latest plate available even after the ticket expires.
+    // Keep the latest plate available while the ticket is active.
     if (data?.plate) {
-      await this.qrTicketRepository.setPlateHint(gateId, data.plate);
+      await this.qrTicketRepository.setPlateHint(
+        gateId,
+        data.plate,
+      );
     }
 
     // Notify the kiosk console that the displayed QR has changed.
@@ -60,10 +64,13 @@ export class QrService {
       `[QrService] Emitting ${EVENTS.CHECKIN_DISPLAY_UPDATED} for gate ${gateId}`,
     );
 
-    this.eventEmitter.emit(EVENTS.CHECKIN_DISPLAY_UPDATED, {
-      gateId,
-      token,
-    });
+    this.eventEmitter.emit(
+      EVENTS.CHECKIN_DISPLAY_UPDATED,
+      {
+        gateId,
+        token,
+      },
+    );
 
     this.logger.log(
       `[QrService] Event ${EVENTS.CHECKIN_DISPLAY_UPDATED} emitted`,
@@ -75,10 +82,8 @@ export class QrService {
       Date.now() + expiresIn * 1000,
     ).toISOString();
 
-    const appUrl = this.configService.get<string>(
-      'APP_URL',
-      'http://localhost:3000',
-    );
+    const appUrl =
+      this.configService.getOrThrow<string>('APP_URL');
 
     const result = {
       token,
@@ -101,32 +106,65 @@ export class QrService {
   }
 
   async checkIn(dto: QrCheckinDto) {
-    const ticket = await this.qrTicketRepository.consume(dto.token);
+    // Validate the plate and consume the ticket atomically.
+    // A wrong plate must NOT burn the QR ticket.
+    const consumeResult =
+      await this.qrTicketRepository.consumeValidated(
+        dto.token,
+        dto.plate,
+      );
 
-    if (!ticket) {
+    if (consumeResult.status === 'not_found') {
       throw new GoneException(
         'QR ticket is expired or has already been used',
       );
     }
 
-    if (ticket.plateLocked && ticket.plate !== dto.plate) {
+    if (consumeResult.status === 'plate_mismatch') {
       throw new BadRequestException(
         'Plate number does not match the QR ticket',
       );
     }
+
+    const ticket = consumeResult.ticket;
 
     const plate =
       ticket.plateLocked && ticket.plate
         ? ticket.plate
         : dto.plate;
 
-    return this.checkInService.submit({
+    const result = await this.checkInService.submit({
       gateId: ticket.gateId,
       plate,
       name: dto.name,
       phone: dto.phone,
       source: 'QR',
     });
+
+    if (!result.success) {
+      throw new ConflictException(result);
+    }
+
+    // The QR has been successfully consumed.
+    // Clear it from the gate's current display.
+    await this.qrTicketRepository.clearCurrentTicket(
+      ticket.gateId,
+    );
+
+    await this.qrTicketRepository.clearPlateHint(
+      ticket.gateId,
+    );
+
+    // Notify the kiosk console that there is no active QR anymore.
+    this.eventEmitter.emit(
+      EVENTS.CHECKIN_DISPLAY_UPDATED,
+      {
+        gateId: ticket.gateId,
+        token: null,
+      },
+    );
+
+    return result;
   }
 
   async getTicketStatus(token: string) {
@@ -218,10 +256,8 @@ export class QrService {
   }
 
   getPublicCheckInUrl(gateId: string, token: string): string {
-    const appUrl = this.configService.get<string>(
-      'APP_URL',
-      'http://localhost:3000',
-    );
+    const appUrl =
+      this.configService.getOrThrow<string>('APP_URL');
 
     return `${appUrl}/checkin?gate=${gateId}&t=${token}`;
   }

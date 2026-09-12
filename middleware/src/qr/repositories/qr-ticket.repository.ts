@@ -70,6 +70,52 @@ export class QrTicketRepository {
       : null;
   }
 
+  async consumeValidated(
+    token: string,
+    plate: string,
+  ): Promise<
+    | { status: 'consumed'; ticket: QrTicketData }
+    | { status: 'not_found' }
+    | { status: 'plate_mismatch' }
+  > {
+    const key = `checkin:ticket:${token}`;
+
+    const script = `
+      local value = redis.call('GET', KEYS[1])
+
+      if not value then
+        return nil
+      end
+
+      local data = cjson.decode(value)
+
+      if data.plateLocked == true and data.plate ~= ARGV[1] then
+        return 0
+      end
+
+      redis.call('DEL', KEYS[1])
+
+      return value
+    `;
+
+    const value = await this.redisService
+      .getClient()
+      .eval(script, 1, key, plate);
+
+    if (value === null) {
+      return { status: 'not_found' };
+    }
+
+    if (value === 0) {
+      return { status: 'plate_mismatch' };
+    }
+
+    return {
+      status: 'consumed',
+      ticket: JSON.parse(value as string),
+    };
+  }
+
   async delete(token: string): Promise<void> {
     const key = `checkin:ticket:${token}`;
 
@@ -104,6 +150,16 @@ export class QrTicketRepository {
       .get(key);
   }
 
+  async clearCurrentTicket(
+    gateId: string,
+  ): Promise<void> {
+    const key = `checkin:current:${gateId}`;
+
+    await this.redisService
+      .getClient()
+      .del(key);
+  }
+
   async setPlateHint(
     gateId: string,
     plate: string,
@@ -112,7 +168,12 @@ export class QrTicketRepository {
 
     await this.redisService
       .getClient()
-      .set(key, plate);
+      .set(
+        key,
+        plate,
+        'EX',
+        this.ttlSeconds,
+      );
   }
 
   async getPlateHint(
@@ -123,6 +184,16 @@ export class QrTicketRepository {
     return this.redisService
       .getClient()
       .get(key);
+  }
+
+  async clearPlateHint(
+    gateId: string,
+  ): Promise<void> {
+    const key = `checkin:plate-hint:${gateId}`;
+
+    await this.redisService
+      .getClient()
+      .del(key);
   }
 
   async getTtl(token: string): Promise<number> {
