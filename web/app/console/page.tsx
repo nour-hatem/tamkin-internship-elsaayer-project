@@ -1,18 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  getHealth,
-  HealthResponse,
-  simulateLprRead,
-} from '@/lib/api';
+import { getHealth, HealthResponse, simulateLprRead } from '@/lib/api';
 import {
   joinGateRoom,
   subscribeToCheckinDisplay,
   subscribeToSapResult,
   subscribeToGateState,
 } from '@/lib/socket';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeSVG } from 'qrcode';
 
 const QR_LIFETIME = 180;
 
@@ -32,10 +28,7 @@ export default function ConsolePage() {
   const [qrMessage, setQrMessage] = useState('');
 
   const addLog = (msg: string) => {
-    setLogs((prev) => [
-      `[${new Date().toLocaleTimeString()}] ${msg}`,
-      ...prev,
-    ]);
+    setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
   };
 
   // Join the selected gate room from the Console
@@ -48,26 +41,18 @@ export default function ConsolePage() {
   useEffect(() => {
     getHealth()
       .then(setHealth)
-      .catch((e) =>
-        addLog(`Health check failed: ${e.message}`),
-      );
+      .catch((e) => addLog(`Health check failed: ${e.message}`));
 
     const unsubSap = subscribeToSapResult((data) => {
       setLastSapResult(data);
 
-      addLog(
-        `SAP Lookup: Plate=${data.plate}, Found=${data.found}`,
-      );
+      addLog(`SAP Lookup: Plate=${data.plate}, Found=${data.found}`);
     });
 
     const unsubGate = subscribeToGateState((data) => {
       setLastGateState(data);
 
-      addLog(
-        `Gate State: Opened=${data.gateOpened}, Ticket=${
-          data.queueEntryId || 'N/A'
-        }`,
-      );
+      addLog(`Gate State: Opened=${data.gateOpened}, Ticket=${data.queueEntryId || 'N/A'}`);
     });
 
     return () => {
@@ -90,22 +75,16 @@ export default function ConsolePage() {
 
   // Open the Kiosk BEFORE triggering LPR
   const handleOpenKiosk = () => {
-    const url = getUrlForApproach(
-      health?.config.activeApproach,
-    );
+    const url = getUrlForApproach(health?.config.activeApproach);
 
     if (!url) {
-      addLog(
-        `No UI available for approach "${health?.config.activeApproach}"`,
-      );
+      addLog(`No UI available for approach "${health?.config.activeApproach}"`);
       return;
     }
 
     window.open(url, '_blank', 'noopener,noreferrer');
 
-    addLog(
-      `Opened ${url} for approach "${health?.config.activeApproach}"`,
-    );
+    addLog(`Opened ${url} for approach "${health?.config.activeApproach}"`);
   };
 
   // Load the current QR display for the selected gate
@@ -114,9 +93,7 @@ export default function ConsolePage() {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-        const response = await fetch(
-          `${apiUrl}/qr/display/${gateId}`,
-        );
+        const response = await fetch(`${apiUrl}/qr/display/${gateId}`);
 
         if (!response.ok) {
           throw new Error('Failed to load QR display.');
@@ -130,14 +107,7 @@ export default function ConsolePage() {
 
           setRemainingSeconds(
             display.expiresAt
-              ? Math.max(
-                  0,
-                  Math.ceil(
-                    (new Date(display.expiresAt).getTime() -
-                      Date.now()) /
-                      1000,
-                  ),
-                )
+              ? Math.max(0, Math.ceil((new Date(display.expiresAt).getTime() - Date.now()) / 1000))
               : 0,
           );
 
@@ -149,26 +119,21 @@ export default function ConsolePage() {
           setQrMessage('');
         }
       } catch (error) {
-        console.error(
-          '[Console] Failed to load QR display:',
-          error,
-        );
+        console.error('[Console] Failed to load QR display:', error);
       }
     };
 
     loadDisplay();
 
-    const unsubscribe = subscribeToCheckinDisplay(
-      async (data) => {
-        if (data.gateId !== gateId) {
-          return;
-        }
+    const unsubscribe = subscribeToCheckinDisplay(async (data) => {
+      if (data.gateId !== gateId) {
+        return;
+      }
 
-        addLog(`QR display updated for ${data.gateId}`);
+      addLog(`QR display updated for ${data.gateId}`);
 
-        await loadDisplay();
-      },
-    );
+      await loadDisplay();
+    });
 
     return unsubscribe;
   }, [gateId]);
@@ -180,13 +145,7 @@ export default function ConsolePage() {
     }
 
     const interval = setInterval(() => {
-      const remaining = Math.max(
-        0,
-        Math.ceil(
-          (new Date(expiresAt).getTime() - Date.now()) /
-            1000,
-        ),
-      );
+      const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
 
       setRemainingSeconds(remaining);
 
@@ -228,11 +187,7 @@ export default function ConsolePage() {
 
       addLog(`Generated QR ticket for ${gateId}`);
     } catch (error) {
-      setQrMessage(
-        error instanceof Error
-          ? error.message
-          : 'Something went wrong.',
-      );
+      setQrMessage(error instanceof Error ? error.message : 'Something went wrong.');
     } finally {
       setLoading(false);
     }
@@ -247,14 +202,9 @@ export default function ConsolePage() {
     setLoading(true);
 
     try {
-      await simulateLprRead(
-        plateNo.trim(),
-        gateId,
-      );
+      await simulateLprRead(plateNo.trim(), gateId);
 
-      addLog(
-        `LPR Scan triggered for ${plateNo.trim()} and gate ${gateId}`,
-      );
+      addLog(`LPR Scan triggered for ${plateNo.trim()} and gate ${gateId}`);
     } catch (err: any) {
       addLog(`LPR Error: ${err.message}`);
     } finally {
@@ -262,22 +212,15 @@ export default function ConsolePage() {
     }
   };
 
-  const isExpired =
-    checkInUrl !== '' && remainingSeconds === 0;
+  const isExpired = checkInUrl !== '' && remainingSeconds === 0;
 
-  const minutes = Math.floor(
-    remainingSeconds / 60,
-  );
+  const minutes = Math.floor(remainingSeconds / 60);
 
   const seconds = remainingSeconds % 60;
 
-  const formattedTime = `${String(minutes).padStart(
-    2,
-    '0',
-  )}:${String(seconds).padStart(2, '0')}`;
+  const formattedTime = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-  const progress =
-    (remainingSeconds / QR_LIFETIME) * 100;
+  const progress = (remainingSeconds / QR_LIFETIME) * 100;
 
   return (
     <div
@@ -287,9 +230,7 @@ export default function ConsolePage() {
         margin: '0 auto',
       }}
     >
-      <h1 style={{ color: '#eb0a1e' }}>
-        Toyota Service Center Console
-      </h1>
+      <h1 style={{ color: '#eb0a1e' }}>Toyota Service Center Console</h1>
 
       {health && (
         <div
@@ -300,12 +241,9 @@ export default function ConsolePage() {
             marginBottom: '15px',
           }}
         >
-          <strong>Config:</strong>{' '}
-          ACTIVE_APPROACH ={' '}
-          <strong>
-            {health.config.activeApproach.toUpperCase()}
-          </strong>{' '}
-          | SAP = {health.config.adapters.sap}
+          <strong>Config:</strong> ACTIVE_APPROACH ={' '}
+          <strong>{health.config.activeApproach.toUpperCase()}</strong> | SAP ={' '}
+          {health.config.adapters.sap}
         </div>
       )}
 
@@ -322,8 +260,7 @@ export default function ConsolePage() {
             background: '#fff',
             padding: '16px',
             borderRadius: '8px',
-            boxShadow:
-              '0 2px 6px rgba(0,0,0,0.1)',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
           }}
         >
           <h3>Simulate Plate Reader</h3>
@@ -333,9 +270,7 @@ export default function ConsolePage() {
           <input
             type="text"
             value={plateNo}
-            onChange={(e) =>
-              setPlateNo(e.target.value)
-            }
+            onChange={(e) => setPlateNo(e.target.value)}
             style={{
               width: '100%',
               padding: '8px',
@@ -347,9 +282,7 @@ export default function ConsolePage() {
 
           <select
             value={gateId}
-            onChange={(e) =>
-              setGateId(e.target.value)
-            }
+            onChange={(e) => setGateId(e.target.value)}
             style={{
               width: '100%',
               padding: '8px',
@@ -388,14 +321,10 @@ export default function ConsolePage() {
               color: '#fff',
               border: 'none',
               borderRadius: '4px',
-              cursor: loading
-                ? 'not-allowed'
-                : 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
-            {loading
-              ? 'Simulating...'
-              : 'Simulate LPR Read'}
+            {loading ? 'Simulating...' : 'Simulate LPR Read'}
           </button>
         </div>
 
@@ -405,8 +334,7 @@ export default function ConsolePage() {
             background: '#fff',
             padding: '16px',
             borderRadius: '8px',
-            boxShadow:
-              '0 2px 6px rgba(0,0,0,0.1)',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
             textAlign: 'center',
           }}
         >
@@ -414,9 +342,7 @@ export default function ConsolePage() {
 
           {!checkInUrl && (
             <>
-              <p style={{ color: '#666' }}>
-                Generate a QR code for the customer.
-              </p>
+              <p style={{ color: '#666' }}>Generate a QR code for the customer.</p>
 
               <button
                 onClick={generateQr}
@@ -430,9 +356,7 @@ export default function ConsolePage() {
                   cursor: 'pointer',
                 }}
               >
-                {loading
-                  ? 'Generating...'
-                  : 'Generate QR Code'}
+                {loading ? 'Generating...' : 'Generate QR Code'}
               </button>
             </>
           )}
@@ -448,20 +372,13 @@ export default function ConsolePage() {
                   borderRadius: '12px',
                 }}
               >
-                <QRCodeSVG
-                  value={checkInUrl}
-                  size={220}
-                  level="H"
-                />
+                <QRCodeSVG value={checkInUrl} size={220} level="H" />
               </div>
 
               <h4>Scan to Check In</h4>
 
               <p>
-                QR expires in{' '}
-                <strong>
-                  {formattedTime}
-                </strong>
+                QR expires in <strong>{formattedTime}</strong>
               </p>
 
               <div
@@ -477,10 +394,7 @@ export default function ConsolePage() {
                   style={{
                     width: `${progress}%`,
                     height: '100%',
-                    backgroundColor:
-                      remainingSeconds <= 30
-                        ? '#c62828'
-                        : '#111',
+                    backgroundColor: remainingSeconds <= 30 ? '#c62828' : '#111',
                   }}
                 />
               </div>
@@ -506,9 +420,7 @@ export default function ConsolePage() {
             <>
               <h4>QR Code Expired</h4>
 
-              <p style={{ color: '#666' }}>
-                Generate a new QR code to continue.
-              </p>
+              <p style={{ color: '#666' }}>Generate a new QR code to continue.</p>
 
               <button
                 onClick={generateQr}
@@ -527,11 +439,7 @@ export default function ConsolePage() {
             </>
           )}
 
-          {qrMessage && (
-            <p style={{ color: '#c62828' }}>
-              {qrMessage}
-            </p>
-          )}
+          {qrMessage && <p style={{ color: '#c62828' }}>{qrMessage}</p>}
         </div>
       </div>
 
@@ -542,15 +450,13 @@ export default function ConsolePage() {
           background: '#fff',
           padding: '16px',
           borderRadius: '8px',
-          boxShadow:
-            '0 2px 6px rgba(0,0,0,0.1)',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
         }}
       >
         <h3>Live Gate Room Status</h3>
 
         <p>
-          <strong>Room:</strong>{' '}
-          <code>gate:{gateId}</code>
+          <strong>Room:</strong> <code>gate:{gateId}</code>
         </p>
 
         <div>
@@ -564,10 +470,7 @@ export default function ConsolePage() {
                 marginTop: '4px',
               }}
             >
-              Plate: {lastSapResult.plate} |
-              Name:{' '}
-              {lastSapResult.profile?.name ||
-                'Unknown'}
+              Plate: {lastSapResult.plate} | Name: {lastSapResult.profile?.name || 'Unknown'}
             </div>
           ) : (
             <div>Waiting for scan...</div>
@@ -580,26 +483,16 @@ export default function ConsolePage() {
           {lastGateState ? (
             <div
               style={{
-                background:
-                  lastGateState.gateOpened
-                    ? '#28a745'
-                    : '#dc3545',
+                background: lastGateState.gateOpened ? '#28a745' : '#dc3545',
                 color: '#fff',
                 padding: '10px',
                 marginTop: '4px',
                 textAlign: 'center',
               }}
             >
-              {lastGateState.gateOpened
-                ? 'GATE OPENED'
-                : 'GATE CLOSED'}
+              {lastGateState.gateOpened ? 'GATE OPENED' : 'GATE CLOSED'}
 
-              {lastGateState.queueEntryId && (
-                <div>
-                  Ticket:{' '}
-                  {lastGateState.queueEntryId}
-                </div>
-              )}
+              {lastGateState.queueEntryId && <div>Ticket: {lastGateState.queueEntryId}</div>}
             </div>
           ) : (
             <div>No decision yet</div>
