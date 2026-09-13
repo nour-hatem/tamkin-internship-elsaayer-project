@@ -324,7 +324,10 @@ if (payload.text) {
 }
 
   // 4. Get the phone number extracted by NLU.
-  const phone = (result.entities?.phone).toString();
+    const phone =
+      result.intent === 'PHONE' && result.entities?.phone != null
+        ? String(result.entities.phone)
+        : '';
 
   if (!phone) {
     this.logger.warn(
