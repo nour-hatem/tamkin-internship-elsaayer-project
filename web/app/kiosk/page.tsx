@@ -77,6 +77,16 @@ function KioskPageContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
+  // Synchronous guard against duplicate/overlapping recordings.
+  //
+  // `isRecording` (state) is still used for UI, but it can be
+  // stale inside closures captured by the OUTPUT effect (whose
+  // dependency list is [gateId]) — the closure only ever sees
+  // the `false` value from the render when the effect was
+  // created. This ref is always read/written synchronously, so
+  // it can't go stale the way the captured state can.
+  const isRecordingRef = useRef(false);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
@@ -197,7 +207,7 @@ function KioskPageContent() {
   // ------------------------------------------------------------
 
   const startRecording = async () => {
-    if (isRecording) {
+    if (isRecordingRef.current) {
       return;
     }
 
@@ -374,6 +384,7 @@ function KioskPageContent() {
           '[Kiosk] Recording stopped.',
         );
 
+        isRecordingRef.current = false;
         setIsRecording(false);
 
         // The kiosk is no longer listening.
@@ -478,6 +489,7 @@ function KioskPageContent() {
           event,
         );
 
+        isRecordingRef.current = false;
         setIsRecording(false);
 
         cleanupRecording();
@@ -493,6 +505,7 @@ function KioskPageContent() {
 
       recorder.start();
 
+      isRecordingRef.current = true;
       setIsRecording(true);
       setState('listening');
 
@@ -543,6 +556,7 @@ function KioskPageContent() {
 
       mediaRecorderRef.current = null;
 
+      isRecordingRef.current = false;
       setIsRecording(false);
       setIdle();
     }
