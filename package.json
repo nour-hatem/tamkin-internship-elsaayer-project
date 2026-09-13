@@ -17,7 +17,7 @@
     "typecheck": "npm run typecheck --workspace=middleware && npm run typecheck --workspace=web",
     "prisma:generate": "prisma generate --schema=middleware/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema=middleware/prisma/schema.prisma",
-    "prisma:seed": "ts-node -r dotenv/config middleware/prisma/seed.ts",
+    "prisma:seed": "dotenv_config_path=middleware/.env ts-node -r dotenv/config middleware/prisma/seed.ts",
     "prisma:studio": "prisma studio --schema=middleware/prisma/schema.prisma",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
@@ -31,5 +31,9 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.5.0",
     "prettier": "^3.3.3"
+  },
+  "dependencies": {
+    "eventemitter": "^0.3.3",
+    "ioredis": "^6.0.0"
   }
 }

@@ -9,6 +9,7 @@ export const EVENTS = {
 
   GATE_OPEN: 'gate.open',
   KIOSK_STATE_CHANGED: 'kiosk.state_changed',
+  KIOSK_INPUT: 'KIOSK_INPUT',
 } as const;
 
 export type EventName = typeof EVENTS[keyof typeof EVENTS];

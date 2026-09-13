@@ -19,13 +19,16 @@ export class SapService {
   async handlePlateRead(payload: PlateReadDto): Promise<SapLookupResultDto> {
     this.logger.log(`PLATE_READ payload: ${JSON.stringify(payload)}`);
 
-    this.logger.log(`Handling PLATE_READ event for plate: ${payload.plateNo}`);
-    const result = await this.sapAdapter.lookupByPlate(
-    payload.plateNo,
-    payload.gateId,
-    );
-    this.logger.log(`SAP Lookup completed. Found: ${result.found}`);
-    this.eventEmitter.emit(EVENTS.SAP_LOOKUP_RESULT, result);
-    return result;
+    this.logger.log(`Handling PLATE_READ event for plate: ${payload.plateNo}, gate: ${payload.gateId}`);
+    const result = await this.sapAdapter.lookupByPlate(payload.plateNo);
+
+    const lookupResultWithGate: SapLookupResultDto = {
+      ...result,
+      gateId: payload.gateId,
+    };
+
+    this.logger.log(`SAP Lookup completed. Found: ${result.found}, gateId: ${payload.gateId}`);
+    this.eventEmitter.emit(EVENTS.SAP_LOOKUP_RESULT, lookupResultWithGate);
+    return lookupResultWithGate;
   }
 }

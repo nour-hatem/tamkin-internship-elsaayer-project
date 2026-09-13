@@ -1,4 +1,8 @@
 import { PrismaClient } from '@prisma/client';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
+
 
 const prisma = new PrismaClient();
 
@@ -8,22 +12,22 @@ async function main() {
   const mockCustomers = [
     {
       plate: 'ABC-1234',
-      name: 'Tariq Al-Mansoor',
+      name: 'طارق منصور',
       phone: '+966501234567',
     },
     {
       plate: 'XYZ-9876',
-      name: 'Nouf Al-Harbi',
+      name: 'نوف الحربي',
       phone: '+966559876543',
     },
     {
       plate: 'KSA-5555',
-      name: 'Fahad Al-Dossari',
+      name: 'فهد عابد',
       phone: '+966541112233',
     },
     {
       plate: 'TOY-2026',
-      name: 'Sara Al-Ghamdi',
+      name: 'ساره الغمدي',
       phone: '+966567778899',
     },
   ];

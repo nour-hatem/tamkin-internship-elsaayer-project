@@ -38,11 +38,13 @@ export default function ConsolePage() {
     ]);
   };
 
+  // Join the selected gate room from the Console
   useEffect(() => {
-    joinGateRoom(gateId);
+    joinGateRoom(gateId, 'console');
     addLog(`Joined room gate:${gateId}`);
   }, [gateId]);
 
+  // Health + socket subscriptions
   useEffect(() => {
     getHealth()
       .then(setHealth)
@@ -52,6 +54,7 @@ export default function ConsolePage() {
 
     const unsubSap = subscribeToSapResult((data) => {
       setLastSapResult(data);
+
       addLog(
         `SAP Lookup: Plate=${data.plate}, Found=${data.found}`,
       );
@@ -59,8 +62,11 @@ export default function ConsolePage() {
 
     const unsubGate = subscribeToGateState((data) => {
       setLastGateState(data);
+
       addLog(
-        `Gate State: Opened=${data.gateOpened}, Ticket=${data.queueEntryId || 'N/A'}`,
+        `Gate State: Opened=${data.gateOpened}, Ticket=${
+          data.queueEntryId || 'N/A'
+        }`,
       );
     });
 
@@ -70,6 +76,39 @@ export default function ConsolePage() {
     };
   }, []);
 
+  // Load the kiosk URL according to the active approach
+  const getUrlForApproach = (approach?: string) => {
+    switch (approach?.toLowerCase()) {
+      case 'voice':
+        return `/kiosk?gateId=${encodeURIComponent(gateId)}`;
+
+      // Add more mappings here as other approaches are introduced
+      default:
+        return null;
+    }
+  };
+
+  // Open the Kiosk BEFORE triggering LPR
+  const handleOpenKiosk = () => {
+    const url = getUrlForApproach(
+      health?.config.activeApproach,
+    );
+
+    if (!url) {
+      addLog(
+        `No UI available for approach "${health?.config.activeApproach}"`,
+      );
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+
+    addLog(
+      `Opened ${url} for approach "${health?.config.activeApproach}"`,
+    );
+  };
+
+  // Load the current QR display for the selected gate
   useEffect(() => {
     const loadDisplay = async () => {
       try {
@@ -80,9 +119,7 @@ export default function ConsolePage() {
         );
 
         if (!response.ok) {
-          throw new Error(
-            'Failed to load QR display.',
-          );
+          throw new Error('Failed to load QR display.');
         }
 
         const display = await response.json();
@@ -106,8 +143,6 @@ export default function ConsolePage() {
 
           setQrMessage('');
         } else {
-          // No active QR ticket for this gate.
-          // Clear any stale QR state from the console.
           setCheckInUrl('');
           setExpiresAt('');
           setRemainingSeconds(0);
@@ -121,8 +156,6 @@ export default function ConsolePage() {
       }
     };
 
-    // Load the current QR immediately when the console
-    // opens or when the selected gate changes.
     loadDisplay();
 
     const unsubscribe = subscribeToCheckinDisplay(
@@ -140,6 +173,7 @@ export default function ConsolePage() {
     return unsubscribe;
   }, [gateId]);
 
+  // Update QR countdown every second
   useEffect(() => {
     if (!expiresAt) {
       return;
@@ -149,7 +183,8 @@ export default function ConsolePage() {
       const remaining = Math.max(
         0,
         Math.ceil(
-          (new Date(expiresAt).getTime() - Date.now()) / 1000,
+          (new Date(expiresAt).getTime() - Date.now()) /
+            1000,
         ),
       );
 
@@ -203,6 +238,7 @@ export default function ConsolePage() {
     }
   }
 
+  // Trigger LPR only after the Kiosk has been opened
   const handleSimulate = async () => {
     if (!plateNo.trim()) {
       return;
@@ -211,10 +247,13 @@ export default function ConsolePage() {
     setLoading(true);
 
     try {
-      await simulateLprRead(plateNo.trim(), gateId);
+      await simulateLprRead(
+        plateNo.trim(),
+        gateId,
+      );
 
       addLog(
-        `LPR Scan triggered for ${plateNo} and gate ${gateId}`,
+        `LPR Scan triggered for ${plateNo.trim()} and gate ${gateId}`,
       );
     } catch (err: any) {
       addLog(`LPR Error: ${err.message}`);
@@ -226,7 +265,10 @@ export default function ConsolePage() {
   const isExpired =
     checkInUrl !== '' && remainingSeconds === 0;
 
-  const minutes = Math.floor(remainingSeconds / 60);
+  const minutes = Math.floor(
+    remainingSeconds / 60,
+  );
+
   const seconds = remainingSeconds % 60;
 
   const formattedTime = `${String(minutes).padStart(
@@ -280,7 +322,8 @@ export default function ConsolePage() {
             background: '#fff',
             padding: '16px',
             borderRadius: '8px',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+            boxShadow:
+              '0 2px 6px rgba(0,0,0,0.1)',
           }}
         >
           <h3>Simulate Plate Reader</h3>
@@ -290,7 +333,9 @@ export default function ConsolePage() {
           <input
             type="text"
             value={plateNo}
-            onChange={(e) => setPlateNo(e.target.value)}
+            onChange={(e) =>
+              setPlateNo(e.target.value)
+            }
             style={{
               width: '100%',
               padding: '8px',
@@ -302,7 +347,9 @@ export default function ConsolePage() {
 
           <select
             value={gateId}
-            onChange={(e) => setGateId(e.target.value)}
+            onChange={(e) =>
+              setGateId(e.target.value)
+            }
             style={{
               width: '100%',
               padding: '8px',
@@ -313,6 +360,24 @@ export default function ConsolePage() {
             <option value="gate-2">Gate 2</option>
           </select>
 
+          {/* Open Kiosk first */}
+          <button
+            onClick={handleOpenKiosk}
+            style={{
+              width: '100%',
+              padding: '10px',
+              backgroundColor: '#333',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              marginBottom: '10px',
+              cursor: 'pointer',
+            }}
+          >
+            Open Kiosk
+          </button>
+
+          {/* Trigger LPR second */}
           <button
             onClick={handleSimulate}
             disabled={loading}
@@ -323,6 +388,9 @@ export default function ConsolePage() {
               color: '#fff',
               border: 'none',
               borderRadius: '4px',
+              cursor: loading
+                ? 'not-allowed'
+                : 'pointer',
             }}
           >
             {loading
@@ -337,7 +405,8 @@ export default function ConsolePage() {
             background: '#fff',
             padding: '16px',
             borderRadius: '8px',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+            boxShadow:
+              '0 2px 6px rgba(0,0,0,0.1)',
             textAlign: 'center',
           }}
         >
@@ -390,7 +459,9 @@ export default function ConsolePage() {
 
               <p>
                 QR expires in{' '}
-                <strong>{formattedTime}</strong>
+                <strong>
+                  {formattedTime}
+                </strong>
               </p>
 
               <div
@@ -471,7 +542,8 @@ export default function ConsolePage() {
           background: '#fff',
           padding: '16px',
           borderRadius: '8px',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+          boxShadow:
+            '0 2px 6px rgba(0,0,0,0.1)',
         }}
       >
         <h3>Live Gate Room Status</h3>
@@ -492,8 +564,10 @@ export default function ConsolePage() {
                 marginTop: '4px',
               }}
             >
-              Plate: {lastSapResult.plate} | Name:{' '}
-              {lastSapResult.profile?.name || 'Unknown'}
+              Plate: {lastSapResult.plate} |
+              Name:{' '}
+              {lastSapResult.profile?.name ||
+                'Unknown'}
             </div>
           ) : (
             <div>Waiting for scan...</div>
@@ -506,9 +580,10 @@ export default function ConsolePage() {
           {lastGateState ? (
             <div
               style={{
-                background: lastGateState.gateOpened
-                  ? '#28a745'
-                  : '#dc3545',
+                background:
+                  lastGateState.gateOpened
+                    ? '#28a745'
+                    : '#dc3545',
                 color: '#fff',
                 padding: '10px',
                 marginTop: '4px',
@@ -521,7 +596,8 @@ export default function ConsolePage() {
 
               {lastGateState.queueEntryId && (
                 <div>
-                  Ticket: {lastGateState.queueEntryId}
+                  Ticket:{' '}
+                  {lastGateState.queueEntryId}
                 </div>
               )}
             </div>
