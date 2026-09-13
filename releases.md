@@ -1,5 +1,23 @@
 # Releases
 
+## [2026-09-13 16:30] Implement Atomic State Transition for Kiosk Check-In Flow
+
+**By:** @cline
+
+**Requested:** Prevent race conditions and duplicate gate opening during simultaneous kiosk INPUT events by transitioning session states atomically in Redis using a Lua script.
+
+**Changes:**
+- `middleware/src/kiosk/session.repository.ts` — Added `atomicTransitionState()` executing an atomic Redis Lua script via `EVAL` to perform compare-and-swap (CAS) transitions while preserving key TTL, returning `SUCCESS`, `STATE_MISMATCH`, or `SESSION_NOT_FOUND`.
+- `middleware/src/kiosk/session.service.ts` — Added `transitionState()` delegating atomic state changes to `SessionRepository`.
+- `middleware/src/kiosk/kiosk.service.ts` — Updated `complete()` to atomically claim `CONFIRMING_PHONE -> CHECKING_IN` before calling `gateAdapter.openGate()` and emitting completion events, rejecting any concurrent duplicate transitions with a warning.
+- `middleware/src/kiosk/session.repository.spec.ts` — Added unit tests verifying atomic transition behaviors across success, state mismatch, and session not found cases.
+- `middleware/src/kiosk/session.service.spec.ts` — Added unit tests verifying `SessionService.transitionState()` delegation.
+
+**Notes:**
+- Redis executes the Lua script atomically, eliminating the need for in-memory JS locks.
+- Socket ownership security checks and existing Redis JSON data structures were preserved unchanged.
+
+
 ## [2026-09-13 15:45] Bind Kiosk Sessions to Socket.IO Client ID & Validate INPUT Ownership
 
 **By:** @cline

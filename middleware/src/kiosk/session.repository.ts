@@ -2,6 +2,42 @@ import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../common/redis/redis.service';
 import { KioskSession } from './interfaces/kiosk-session.interface';
 
+export type AtomicTransitionStatus = 'SUCCESS' | 'STATE_MISMATCH' | 'SESSION_NOT_FOUND';
+
+export interface AtomicTransitionResult {
+  status: AtomicTransitionStatus;
+  session: KioskSession | null;
+  currentState?: string;
+}
+
+const LUA_TRANSITION_STATE = `
+local sessionKey = KEYS[1]
+local expectedState = ARGV[1]
+local newState = ARGV[2]
+
+local raw = redis.call('GET', sessionKey)
+if not raw then
+  return {'SESSION_NOT_FOUND'}
+end
+
+local session = cjson.decode(raw)
+if session['currentState'] ~= expectedState then
+  return {'STATE_MISMATCH', session['currentState'] or ''}
+end
+
+session['currentState'] = newState
+local updated = cjson.encode(session)
+
+local ttl = redis.call('PTTL', sessionKey)
+if ttl > 0 then
+  redis.call('SET', sessionKey, updated, 'PX', ttl)
+else
+  redis.call('SET', sessionKey, updated)
+end
+
+return {'SUCCESS', updated}
+`;
+
 @Injectable()
 export class SessionRepository {
   private readonly logger = new Logger(SessionRepository.name);
@@ -76,5 +112,43 @@ export class SessionRepository {
     }
 
     this.logger.log(`Deleted session ${sessionId} from Redis`);
+  }
+
+  async atomicTransitionState(
+    sessionId: string,
+    expectedState: string,
+    newState: string,
+  ): Promise<AtomicTransitionResult> {
+    const client = this.redisService.getClient();
+    const sessionKey = this.getSessionKey(sessionId);
+
+    const result = (await client.eval(
+      LUA_TRANSITION_STATE,
+      1,
+      sessionKey,
+      expectedState,
+      newState,
+    )) as [string, string?];
+
+    const [status, payload] = result;
+
+    if (status === 'SUCCESS' && payload) {
+      const session = JSON.parse(payload) as KioskSession;
+      this.logger.log(
+        `Transitioned session ${sessionId} state from ${expectedState} to ${newState}`,
+      );
+      return { status: 'SUCCESS', session };
+    }
+
+    if (status === 'STATE_MISMATCH') {
+      const actualState = payload || '';
+      this.logger.warn(
+        `State mismatch for session ${sessionId}: expected ${expectedState}, found ${actualState}`,
+      );
+      return { status: 'STATE_MISMATCH', currentState: actualState, session: null };
+    }
+
+    this.logger.warn(`Session ${sessionId} not found for state transition`);
+    return { status: 'SESSION_NOT_FOUND', session: null };
   }
 }

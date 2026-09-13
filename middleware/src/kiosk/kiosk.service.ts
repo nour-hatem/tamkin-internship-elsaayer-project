@@ -187,17 +187,10 @@ export class KioskService {
     );
 
     // 3. Customer confirmed the phone number.
-if (result.intent === 'YES') {
-  await this.sessionService.updateSession(
-    session.sessionId,
-    {
-      confirmationRetries: 0,
-    },
-  );
-
-  await this.complete(session);
-  return;
-}
+    if (result.intent === 'YES') {
+      await this.complete(session);
+      return;
+    }
 
     // 4. Customer rejected the phone number.
  if (result.intent === 'NO') {
@@ -424,63 +417,72 @@ if (payload.text) {
 
   }
 
-  private async complete(session:KioskSession){
+  private async complete(session: KioskSession) {
     this.logger.log(
-    `[KioskService] Customer confirmed phone for session ${session.sessionId}`,
-  );
-
-  await this.sessionService.updateSession(
-    session.sessionId,
-    {
-      currentState: KioskStateEnum.CHECKING_IN,
-    },
-  );
-
-  try {
-    const gateOpened = await this.gateAdapter.openGate(session.gateId);
-     if (!gateOpened) {
-       throw new Error(`Gate ${session.gateId} did not open`);
-     }
-
-    this.logger.log(
-      `[KioskService] Gate ${session.gateId} opened successfully`,
+      `[KioskService] Customer confirmed phone for session ${session.sessionId}`,
     );
 
-    await this.sessionService.updateSession(
+    const transitionResult = await this.sessionService.transitionState(
       session.sessionId,
-      {
-        currentState: KioskStateEnum.COMPLETED,
-      },
+      KioskStateEnum.CONFIRMING_PHONE,
+      KioskStateEnum.CHECKING_IN,
     );
 
-    this.eventEmitter.emit(
-      EVENTS.CHECKIN_COMPLETED,
-      {
-        sessionId: session.sessionId,
-        gateId: session.gateId,
-        gateOpened: true,
-      },
-    );
-  } catch (error) {
-    this.logger.error(
-      `[KioskService] Failed to open gate ${session.gateId}`,
-      error,
-    );
+    if (transitionResult.status !== 'SUCCESS') {
+      this.logger.warn(
+        `[KioskService] State transition to CHECKING_IN failed/rejected for session ${session.sessionId}: ${transitionResult.status}` +
+          (transitionResult.status === 'STATE_MISMATCH'
+            ? ` (current state: ${transitionResult.currentState})`
+            : ''),
+      );
+      return;
+    }
 
-    // Keep the session in CHECKING_IN for now.
-    // We can define the failure/retry behavior separately.
-    this.eventEmitter.emit(
-      EVENTS.CHECKIN_COMPLETED,
-      {
-        sessionId: session.sessionId,
-        gateId: session.gateId,
-        gateOpened: false,
-      },
-    );
-  }
+    try {
+      const gateOpened = await this.gateAdapter.openGate(session.gateId);
+      if (!gateOpened) {
+        throw new Error(`Gate ${session.gateId} did not open`);
+      }
 
-  return;
+      this.logger.log(
+        `[KioskService] Gate ${session.gateId} opened successfully`,
+      );
 
+      await this.sessionService.updateSession(
+        session.sessionId,
+        {
+          currentState: KioskStateEnum.COMPLETED,
+          confirmationRetries: 0,
+        },
+      );
+
+      this.eventEmitter.emit(
+        EVENTS.CHECKIN_COMPLETED,
+        {
+          sessionId: session.sessionId,
+          gateId: session.gateId,
+          gateOpened: true,
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `[KioskService] Failed to open gate ${session.gateId}`,
+        error,
+      );
+
+      // Keep the session in CHECKING_IN for now.
+      // We can define the failure/retry behavior separately.
+      this.eventEmitter.emit(
+        EVENTS.CHECKIN_COMPLETED,
+        {
+          sessionId: session.sessionId,
+          gateId: session.gateId,
+          gateOpened: false,
+        },
+      );
+    }
+
+    return;
   }
 
     /**

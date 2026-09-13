@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { SessionRepository } from './session.repository';
+import { SessionRepository, AtomicTransitionResult } from './session.repository';
 import { KioskSession, CreateSessionDto } from './interfaces/kiosk-session.interface';
 import { KioskStateEnum } from './enum/VoiceStateEnum';
 
@@ -52,6 +52,19 @@ export class SessionService {
     this.logger.log(`Updated session ${sessionId} state to ${newState}`);
     return session;
   }
+
+  async transitionState(
+    sessionId: string,
+    expectedState: string,
+    newState: string,
+  ): Promise<AtomicTransitionResult> {
+    return this.sessionRepository.atomicTransitionState(
+      sessionId,
+      expectedState,
+      newState,
+    );
+  }
+
 
   async updateSession(
     sessionId: string,
