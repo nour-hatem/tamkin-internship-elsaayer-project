@@ -1,5 +1,20 @@
 # Releases
 
+## [2026-09-13 17:30] Configure Unified Redis TTL Policy for Kiosk Sessions
+
+**By:** @cline
+
+**Requested:** Configure a unified, configurable Redis session expiration policy for kiosk sessions with a 180-second default fallback across creation and updates.
+
+**Changes:**
+- `.env.example` — Added `KIOSK_SESSION_TTL_SECONDS=180` under Database & Cache configuration.
+- `middleware/src/kiosk/session.service.ts` — Injected `ConfigService`, retrieved and validated `KIOSK_SESSION_TTL_SECONDS` (falling back to `180`s for missing or non-positive values), and passed `this.ttlSeconds` to `sessionRepository.save()` in `createSession()`, `updateState()`, and `updateSession()`.
+- `middleware/src/kiosk/session.service.spec.ts` — Added unit tests verifying TTL configuration parsing, fallback handling, and TTL propagation to `sessionRepository.save()`.
+
+**Notes:**
+- Redis CAS atomic state transitions via `atomicTransitionState()` remain unchanged, preserving remaining TTL via Lua script `PTTL`.
+
+
 ## [2026-09-13 16:30] Implement Atomic State Transition for Kiosk Check-In Flow
 
 **By:** @cline
