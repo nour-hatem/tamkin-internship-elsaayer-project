@@ -17,8 +17,8 @@ import { StubGateAdapter } from 'src/gate/adapters/stub-gate.adapter';
       useClass: ElevenLabsTtsAdapter,
       //useClass:StubTtsAdapter
     },{
-      provide: 'ISttAdapter', 
-      useClass: ElevenLabsSttAdapter,
+      provide: 'ISttAdapter',
+      useExisting: 'STT_ADAPTER_TOKEN',
     },{
       provide:'INluAdapter',
       useClass:NluRulesAdapter
