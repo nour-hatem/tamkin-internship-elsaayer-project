@@ -9,7 +9,10 @@ export class SapAdapter implements ISapAdapter {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async lookupByPlate(plate: string): Promise<SapLookupResultDto> {
+  async lookupByPlate(
+     plate: string,
+     gateId: string,
+    ): Promise<SapLookupResultDto>  {
     this.logger.log(`[Prisma SAP Adapter] Looking up plate in DB: ${plate}`);
     try {
       const customer = await this.prisma.customerProfile.findUnique({
@@ -26,6 +29,7 @@ export class SapAdapter implements ISapAdapter {
       return {
         plate: customer.plate,
         found: true,
+        gateId,
         profile: {
           name: customer.name,
           phone: customer.phone,

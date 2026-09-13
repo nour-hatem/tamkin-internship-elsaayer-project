@@ -21,7 +21,7 @@ export interface KioskInputPayload {
   gateId: string;
   state: string;
   audio?: ArrayBuffer;
-  text?:string
+  text?: string;
 }
 
 export function getSocket(): Socket {
@@ -124,10 +124,33 @@ export function emitInput(
   s.emit('INPUT', payload);
 }
 
-// --------------------------------------------------
-// Existing general events
-// --------------------------------------------------
+/**
+ * Backend → Console
+ *
+ * Notifies the console that the QR check-in display
+ * for a gate has changed.
+ */
+export function subscribeToCheckinDisplay(
+  callback: (data: {
+    gateId: string;
+    token: string | null;
+    timestamp: string;
+  }) => void,
+): () => void {
+  const s = getSocket();
 
+  s.on('checkin.display', callback);
+
+  return () => {
+    s.off('checkin.display', callback);
+  };
+}
+
+/**
+ * Backend → Console
+ *
+ * Receives SAP lookup results.
+ */
 export function subscribeToSapResult(
   callback: (data: any) => void,
 ): () => void {
@@ -140,6 +163,11 @@ export function subscribeToSapResult(
   };
 }
 
+/**
+ * Backend → Console
+ *
+ * Receives gate state updates.
+ */
 export function subscribeToGateState(
   callback: (data: any) => void,
 ): () => void {
@@ -152,6 +180,11 @@ export function subscribeToGateState(
   };
 }
 
+/**
+ * Backend → Frontend
+ *
+ * Receives kiosk state updates.
+ */
 export function subscribeToKioskState(
   callback: (data: any) => void,
 ): () => void {
