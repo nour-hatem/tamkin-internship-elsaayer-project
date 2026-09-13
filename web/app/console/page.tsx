@@ -56,8 +56,7 @@ export default function ConsolePage() {
   }, []);
 
   const getUrlForApproach = (approach?: string) => {
-    switch (approach) {
-      case 'voice':
+    switch (approach?.toLowerCase()) {
         return `/kiosk?gateId=${encodeURIComponent(gateId)}`;
 
       // Add more mappings here as other approaches are introduced
