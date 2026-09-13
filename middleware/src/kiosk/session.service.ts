@@ -21,8 +21,9 @@ export class SessionService {
       customerName: dto.customerName,
       phone: dto.phone,
       currentState: initialState,
-      phoneRetries:0,
-      confirmationRetries:0
+      phoneRetries: 0,
+      confirmationRetries: 0,
+      socketId: dto.socketId ?? null,
     };
 
     await this.sessionRepository.save(session);

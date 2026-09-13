@@ -1,5 +1,25 @@
 # Releases
 
+## [2026-09-13 15:45] Bind Kiosk Sessions to Socket.IO Client ID & Validate INPUT Ownership
+
+**By:** @cline
+
+**Requested:** Bind each kiosk session to the Socket.IO socket that owns it and validate ownership on INPUT messages to prevent unauthorized clients from injecting responses into other sessions.
+
+**Changes:**
+- `middleware/src/kiosk/interfaces/kiosk-session.interface.ts` — Added `socketId` to `KioskSession` and `CreateSessionDto`.
+- `middleware/src/kiosk/session.service.ts` — Updated `createSession()` to persist `socketId` in the session model stored in Redis.
+- `middleware/src/kiosk/kiosk.gateway.ts` — Injected `SessionService`, added gate-to-kiosk socket mapping (`gateKioskSockets`), registered kiosk clients on `kiosk.join` when `clientType === 'kiosk'`, supported re-binding session `socketId` on legitimate kiosk reconnection, and added ownership validation in `handleInput()` to reject missing or mismatched sessions before publishing `KIOSK_INPUT`.
+- `middleware/src/kiosk/kiosk.service.ts` — Updated `handleSapLookupResult()` to retrieve the gate's associated kiosk `socketId` from `KioskGateway` and pass it into `createSession()`.
+- `web/lib/socket.ts` — Updated `joinGateRoom()` to accept and persist `clientType`, emitting `clientType` on initial join and reconnects.
+- `web/app/kiosk/page.tsx` — Specified `clientType: 'kiosk'` when calling `joinGateRoom()`.
+- `web/app/console/page.tsx` — Specified `clientType: 'console'` when calling `joinGateRoom()`.
+
+**Notes:**
+- Spectator/console clients joining `gate:${gateId}` are distinguished by `clientType` and never registered as the kiosk session owner.
+- The `gateId` is preserved in the session for routing, and no client-side `gateId` or `state` is trusted for authorization.
+
+
 ## [2026-09-11] Implement Voice Confirmation Flow & Stub STT Integration
 
 **By:** @cline

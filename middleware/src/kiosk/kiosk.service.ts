@@ -64,9 +64,12 @@ export class KioskService {
       `[KioskService] Processing Voice kiosk flow for plate: ${payload.plate}`,
     );
 
+    const socketId = this.kioskGateway.getKioskSocketIdForGate(payload.gateId);
+
     const session = await this.sessionService.createSession({
       gateId: payload.gateId,
       plateNo: payload.plate,
+      socketId,
 
       customerName: payload.found
         ? payload.profile?.name ?? null
@@ -80,9 +83,9 @@ export class KioskService {
         ? KioskStateEnum.GREETING
         : KioskStateEnum.NAME_ASKING,
 
-      confirmationRetries:0,
-      
-      phoneRetries:0
+      confirmationRetries: 0,
+
+      phoneRetries: 0,
     });
 
 
@@ -324,10 +327,12 @@ if (payload.text) {
 }
 
   // 4. Get the phone number extracted by NLU.
-    const phone =
-      result.intent === 'PHONE' && result.entities?.phone != null
-        ? String(result.entities.phone)
-        : '';
+
+       const phone =
+       result.intent === 'PHONE' && result.entities?.phone != null
+         ? String(result.entities.phone)
+         : '';
+
 
   if (!phone) {
     this.logger.warn(
@@ -432,7 +437,10 @@ if (payload.text) {
   );
 
   try {
-    await this.gateAdapter.openGate(session.gateId);
+    const gateOpened = await this.gateAdapter.openGate(session.gateId);
+     if (!gateOpened) {
+       throw new Error(`Gate ${session.gateId} did not open`);
+     }
 
     this.logger.log(
       `[KioskService] Gate ${session.gateId} opened successfully`,

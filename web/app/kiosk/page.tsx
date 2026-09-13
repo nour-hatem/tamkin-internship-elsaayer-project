@@ -1088,7 +1088,7 @@ const setIdle = () => {
     // Join gate room AFTER subscription is ready
     // ----------------------------------------------------------
 
-    joinGateRoom(gateId);
+    joinGateRoom(gateId, 'kiosk');
 
     return () => {
       console.log(

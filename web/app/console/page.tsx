@@ -25,7 +25,7 @@ export default function ConsolePage() {
 
   // Join the selected gate room from the Console
   useEffect(() => {
-    joinGateRoom(gateId);
+    joinGateRoom(gateId, 'console');
     addLog(`Joined room gate:${gateId}`);
   }, [gateId]);
 

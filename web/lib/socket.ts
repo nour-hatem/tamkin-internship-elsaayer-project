@@ -5,6 +5,7 @@ const WS_URL =
 
 let socket: Socket | null = null;
 let currentGateId: string | null = null;
+let currentClientType: string = 'console';
 
 export interface KioskOutputPayload {
   sessionId: string;
@@ -40,11 +41,12 @@ export function getSocket(): Socket {
 
       if (currentGateId) {
         console.log(
-          `[Socket] Re-emitting kiosk.join for gateId: ${currentGateId}`,
+          `[Socket] Re-emitting kiosk.join for gateId: ${currentGateId}, clientType: ${currentClientType}`,
         );
 
         socket.emit('kiosk.join', {
           gateId: currentGateId,
+          clientType: currentClientType,
         });
       }
     });
@@ -60,18 +62,23 @@ export function getSocket(): Socket {
   return socket;
 }
 
-export function joinGateRoom(gateId: string): void {
+export function joinGateRoom(
+  gateId: string,
+  clientType: 'kiosk' | 'console' | string = 'console',
+): void {
   currentGateId = gateId;
+  currentClientType = clientType;
 
   const s = getSocket();
 
   if (s.connected) {
     console.log(
-      `[Socket] Joining room for gate: ${gateId}`,
+      `[Socket] Joining room for gate: ${gateId}, clientType: ${clientType}`,
     );
 
     s.emit('kiosk.join', {
       gateId,
+      clientType,
     });
   }
 }
