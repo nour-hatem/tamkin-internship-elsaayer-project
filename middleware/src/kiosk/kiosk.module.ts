@@ -11,15 +11,15 @@ import { TypedEventEmitter } from '@common/typed-event-emitter.service';
 import { StubGateAdapter } from 'src/gate/adapters/stub-gate.adapter';
 
 @Module({
-  imports: [CheckInModule, RedisModule,AiModule,ConfigModule],
+  imports: [CheckInModule, RedisModule,AiModule,ConfigModule,],
   providers: [KioskService, KioskGateway, SessionRepository, SessionService,{
       provide: 'ITtsAdapter', 
       useClass: ElevenLabsTtsAdapter,
-      //useClass:StubTtsAdapter
+     
     },{
 
       provide: 'ISttAdapter',
-      useExisting: 'STT_ADAPTER_TOKEN',
+      useClass:ElevenLabsSttAdapter
 
     },{
       provide:'INluAdapter',

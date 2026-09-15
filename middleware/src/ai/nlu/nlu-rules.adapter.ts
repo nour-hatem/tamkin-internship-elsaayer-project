@@ -10,7 +10,7 @@ const AFFIRMATIVE_EN = ['yes', 'yeah', 'yep'] as const;
 /** Egyptian Arabic affirmatives, written post-normalisation (see `normalize`). */
 const AFFIRMATIVE_AR = ['ايوه', 'نعم', 'تمام'] as const;
 const NEGATIVE_EN = ['no', 'nope'] as const;
-const NEGATIVE_AR = ['لا'] as const;
+const NEGATIVE_AR = ['لا' , 'له'] as const;
 
 const AFFIRMATIVES: ReadonlySet<string> = new Set<string>([...AFFIRMATIVE_EN, ...AFFIRMATIVE_AR]);
 const NEGATIVES: ReadonlySet<string> = new Set<string>([...NEGATIVE_EN, ...NEGATIVE_AR]);
