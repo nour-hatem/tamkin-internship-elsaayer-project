@@ -3,6 +3,7 @@ import { AiConfigService } from '../config/ai-config.service';
 import { HttpTimeoutError, fetchWithTimeout, safeBodySnippet } from '../common/http';
 import { ISttAdapter } from './stt.port';
 import { SttProviderError } from './stt-provider.error';
+import { normalizeNumberWords } from '../common/Phone-normalizing';
 
 /**
  * Shape of the fields we consume from ElevenLabs' speech-to-text response.
@@ -114,9 +115,24 @@ export class ElevenLabsSttAdapter implements ISttAdapter {
       );
     }
 
-    return payload.text.trim();
+    const transcript = payload.text.trim();
+
+const normalizedTranscript = normalizeNumberWords(transcript);
+
+this.logger.log(
+  `[ElevenLabs STT] Original transcript: "${transcript}"`,
+);
+
+this.logger.log(
+  `[ElevenLabs STT] Normalized transcript: "${normalizedTranscript}"`,
+);
+
+return normalizedTranscript;
   }
+
+
 }
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
