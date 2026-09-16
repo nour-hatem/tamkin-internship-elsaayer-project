@@ -301,7 +301,7 @@ if (payload.text) {
     );
 
       // 3. Make sure NLU actually detected a phone number.
- if (result.intent === 'UNKNOWN') {
+ if (result.intent != 'PHONE') {
   if (session.phoneRetries === 0) {
     await this.sessionService.updateSession(
       session.sessionId,
@@ -360,8 +360,8 @@ if (payload.text) {
    */
   private async greeting(session: KioskSession) {
     const message =
-      `أهلاً بك ${session.customerName} ` +
-      `رقمك هو ${session.phone} ` +
+      `أهلاً بك  ${session.customerName}  ` +
+      `رقمك هو  ${session.phone}  ` +
       `فقط قل نعم او لا`;
 
     const audio = await this.ttsAdapter.synthesize(
