@@ -8,6 +8,7 @@ export function normalizeNumberWords(text: string): string {
     إثنين: '2',
     ثلاثة: '3',
     ثلاث: '3',
+    تلاته: '3',
     أربعة: '4',
     اربعة: '4',
     أربعه: '4',
@@ -19,6 +20,8 @@ export function normalizeNumberWords(text: string): string {
     سبعه: '7',
     ثمانية: '8',
     ثمانيه: '8',
+     تمانيه: '8',
+      تمانية: '8',
     تسعة: '9',
     تسعه: '9',
 
