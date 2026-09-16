@@ -77,14 +77,14 @@ function classify(raw: string): NluResultDto {
  * ambiguous → UNKNOWN. Guessing at a gate barrier is worse than re-prompting.
  */
 function matchYesNo(normalized: string): NluResultDto {
-  const tokens = tokenize(normalized);
+  const token = normalized;
 
   let sawAffirmative = false;
   let sawNegative = false;
-  for (const token of tokens) {
+  
     if (AFFIRMATIVES.has(token)) sawAffirmative = true;
     if (NEGATIVES.has(token)) sawNegative = true;
-  }
+  
 
   if (sawAffirmative && sawNegative) return UNKNOWN_RESULT;
   if (sawAffirmative) return { intent: 'YES', confidence: 0.98, entities: {} };
