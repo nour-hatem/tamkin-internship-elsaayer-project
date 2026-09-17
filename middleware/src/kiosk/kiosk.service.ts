@@ -20,6 +20,7 @@ import { KioskSession } from './interfaces/kiosk-session.interface';
 import { KioskInputDto } from './interfaces/KioskInputDto';
 import { ISapAdapter } from 'src/sap/ports/sap.port';
 import { IGateAdapter } from 'src/gate/ports/gate.port';
+import { CheckInService } from 'src/checkin/checkin.service';
 
 
 @Injectable()
@@ -29,6 +30,7 @@ export class KioskService {
   constructor(
     private readonly configService: ConfigService,
     private readonly sessionService: SessionService,
+    private readonly checkinService:CheckInService,
     @Inject(forwardRef(() => KioskGateway))
     private readonly kioskGateway: KioskGateway,
     @Inject('ITtsAdapter')
@@ -98,9 +100,6 @@ export class KioskService {
     }else{
       await this.askForName(session)
     }
-
-    // DATA_ASKING will be implemented separately.
-    // For now, the session is created with DATA_ASKING state.
   }
 
   /**
@@ -302,7 +301,7 @@ if (payload.text) {
     );
 
       // 3. Make sure NLU actually detected a phone number.
- if (result.intent === 'UNKNOWN') {
+ if (result.intent != 'PHONE') {
   if (session.phoneRetries === 0) {
     await this.sessionService.updateSession(
       session.sessionId,
@@ -361,8 +360,8 @@ if (payload.text) {
    */
   private async greeting(session: KioskSession) {
     const message =
-      `أهلاً بك ${session.customerName} ` +
-      `رقمك هو ${session.phone} ` +
+      `أهلاً بك  ${session.customerName}  ` +
+      `رقمك هو  ${session.phone}  ` +
       `فقط قل نعم او لا`;
 
     const audio = await this.ttsAdapter.synthesize(
@@ -438,33 +437,45 @@ if (payload.text) {
       return;
     }
 
-    try {
-      const gateOpened = await this.gateAdapter.openGate(session.gateId);
-      if (!gateOpened) {
-        throw new Error(`Gate ${session.gateId} did not open`);
-      }
+    // try {
+    //   const gateOpened = await this.gateAdapter.openGate(session.gateId);
+    //   if (!gateOpened) {
+    //     throw new Error(`Gate ${session.gateId} did not open`);
+    //   }
 
-      this.logger.log(
-        `[KioskService] Gate ${session.gateId} opened successfully`,
-      );
+    //   this.logger.log(
+    //     `[KioskService] Gate ${session.gateId} opened successfully`,
+    //   );
 
-      await this.sessionService.updateSession(
-        session.sessionId,
-        {
-          currentState: KioskStateEnum.COMPLETED,
-          confirmationRetries: 0,
-        },
-      );
+    //   await this.sessionService.updateSession(
+    //     session.sessionId,
+    //     {
+    //       currentState: KioskStateEnum.COMPLETED,
+    //       confirmationRetries: 0,
+    //     },
+    //   );
 
-      this.eventEmitter.emit(
-        EVENTS.CHECKIN_COMPLETED,
-        {
-          sessionId: session.sessionId,
-          gateId: session.gateId,
-          gateOpened: true,
-        },
-      );
-    } catch (error) {
+    //   this.eventEmitter.emit(
+    //     EVENTS.CHECKIN_COMPLETED,
+    //     {
+    //       sessionId: session.sessionId,
+    //       gateId: session.gateId,
+    //       gateOpened: true,
+    //     },
+    //   );
+    // } 
+try{
+await this.checkinService.submit({
+  
+  gateId:session.gateId,
+  plate: session.plateNo,
+  name: session.customerName,
+  phone: session.phone,
+  source: 'VOICE',
+})
+}
+
+    catch (error) {
       this.logger.error(
         `[KioskService] Failed to open gate ${session.gateId}`,
         error,

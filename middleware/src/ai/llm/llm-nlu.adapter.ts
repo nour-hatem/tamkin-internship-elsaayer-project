@@ -15,13 +15,21 @@ const SYSTEM_PROMPT = [
   'Reply with ONLY a JSON object. No prose, no explanation, no markdown fences.',
   '',
   'Exactly one of these four shapes is allowed:',
-  '{"intent":"YES"}     - agreement, confirmation, assent',
-  '{"intent":"NO"}      - disagreement, refusal, denial',
-  '{"intent":"PHONE","phone":"01XXXXXXXXX"} - an Egyptian mobile number: exactly 11 digits, starting 01',
+  '{"intent":"YES"} - agreement, confirmation, assent',
+  '{"intent":"NO"} - disagreement, refusal, denial',
+  '{"intent":"PHONE","phone":"..."} - a valid phone number',
   '{"intent":"UNKNOWN"} - anything else, or whenever you are not sure',
   '',
   'Rules:',
-  '- Never invent or complete digits. Only emit PHONE when a full 11-digit number is actually spoken.',
+  '- PHONE must contain a valid phone number with 7 to 15 digits.',
+  '- Extract phone numbers spoken digit-by-digit or as Arabic/English number words.',
+  '- The driver may correct a digit they just spoke.',
+  '- When the driver explicitly corrects a digit, replace the originally spoken digit with the corrected digit.',
+  '- Corrections may appear in natural conversational language such as "sorry", "I mean", "not X, Y", "the last number is Y not X", or "X should be Y".',
+
+  '- The corrected number does not need to appear literally in the utterance.',
+  '- Do not invent digits that are not supported by the utterance.',
+  '- If the phone number cannot be determined confidently, answer {"intent":"UNKNOWN"}.',
   '- If the utterance is empty, unrelated, or ambiguous, answer {"intent":"UNKNOWN"}.',
   '- When in doubt, answer {"intent":"UNKNOWN"}. A wrong guess at a gate barrier is worse than asking again.',
 ].join('\n');
@@ -243,7 +251,7 @@ function isClassifyResult(value: unknown): value is ClassifyResult {
       return true;
     case 'PHONE': {
       const phone = (value as { phone?: unknown }).phone;
-      return typeof phone === 'string' && /^01\d{9}$/.test(phone);
+      return typeof phone === 'string' && /^\d{7,15}$/.test(phone);;
     }
     default:
       return false;

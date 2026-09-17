@@ -15,27 +15,32 @@ type AvatarState = 'idle' | 'talking' | 'listening';
 
 // ------------------------------------------------------------
 // Backend-driven input mode.
-//
-// The backend is the source of truth for which input method
-// the kiosk should currently show. The frontend never infers
-// this from retry counts or state history — it only renders
-// whatever `inputMode` arrives on the OUTPUT payload.
 // ------------------------------------------------------------
+
 type InputMode = 'VOICE' | 'BUTTONS' | 'TEXT';
 
-// NOTE: `KioskOutputPayload` (from lib/socket) should be updated
-// to include `inputMode: InputMode` directly. Until that type is
-// updated there, this local type widens it so the rest of this
-// file can rely on `payload.inputMode` safely.
 type KioskOutputPayloadWithMode = KioskOutputPayload & {
   inputMode?: InputMode;
 };
 
+// ------------------------------------------------------------
+// Voice Activity Detection configuration
+// ------------------------------------------------------------
+
 const SPEAKING_THRESHOLD = 0.2;
-const SILENCE_THRESHOLD = 0.15;
-const SILENCE_DURATION = 1800;
-const MAX_RECORD_TIME = 15000;
+const SILENCE_THRESHOLD = 0.1;
+const SILENCE_DURATION = 2500;
+
+const MAX_RECORD_TIME = 100000;
 const NO_SPEECH_TIMEOUT = 7000;
+
+// How often to print RMS debug information.
+// This avoids flooding the browser console every animation frame.
+const RMS_LOG_INTERVAL = 100;
+
+// ------------------------------------------------------------
+// Component
+// ------------------------------------------------------------
 
 function KioskPageContent() {
   const searchParams = useSearchParams();
@@ -46,16 +51,16 @@ function KioskPageContent() {
   // Frontend/UI state
   // ------------------------------------------------------------
 
-  // This is ONLY the avatar state.
-  // It is NOT the backend business/session state.
   const [state, setState] = useState<AvatarState>('idle');
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+
   const [nameInput, setNameInput] = useState('');
   const [showNameInput, setShowNameInput] = useState(false);
+
   const [showConfirmationButtons, setShowConfirmationButtons] =
     useState(false);
 
@@ -77,14 +82,6 @@ function KioskPageContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  // Synchronous guard against duplicate/overlapping recordings.
-  //
-  // `isRecording` (state) is still used for UI, but it can be
-  // stale inside closures captured by the OUTPUT effect (whose
-  // dependency list is [gateId]) — the closure only ever sees
-  // the `false` value from the render when the effect was
-  // created. This ref is always read/written synchronously, so
-  // it can't go stale the way the captured state can.
   const isRecordingRef = useRef(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -102,28 +99,12 @@ function KioskPageContent() {
   // Session refs
   // ------------------------------------------------------------
 
-  // React state is useful for rendering,
-  // but refs are needed inside callbacks such as MediaRecorder.onstop.
   const sessionIdRef = useRef<string | null>(null);
 
-  // Backend business state:
-  // GREETING
-  // CONFIRMING_PHONE
-  // PHONE_ASKING
-  // NAME_ASKING
-  // etc.
-  //
-  // This is NOT the same as AvatarState.
   const sessionStateRef = useRef<string | null>(null);
 
-  // Backend-driven input mode: 'VOICE' | 'BUTTONS' | 'TEXT'.
-  // This decides whether the mic auto-starts after TTS, and
-  // which (if any) on-screen input control is shown.
   const inputModeRef = useRef<InputMode>('VOICE');
 
-  // True whenever the current inputMode is NOT 'VOICE'.
-  // Used everywhere the mic auto-start logic previously checked
-  // "is this NAME_ASKING" — now it's simply "is this non-voice".
   const textInputStateRef = useRef(false);
 
   // ------------------------------------------------------------
@@ -190,10 +171,7 @@ function KioskPageContent() {
   };
 
   // ------------------------------------------------------------
-  // Hide every input UI.
-  //
-  // Called before showing whatever inputMode the backend just
-  // requested, so two input controls can never appear at once.
+  // Hide every input UI
   // ------------------------------------------------------------
 
   const hideAllInputUI = () => {
@@ -207,369 +185,634 @@ function KioskPageContent() {
   // ------------------------------------------------------------
 
   const startRecording = async () => {
-    if (isRecordingRef.current) {
-      return;
-    }
+  if (isRecordingRef.current) {
+    console.warn('[Kiosk][VAD] Recording already active.');
+    return;
+  }
 
-    const currentSessionId = sessionIdRef.current;
+  const currentSessionId = sessionIdRef.current;
 
-    if (!currentSessionId) {
-      console.warn(
-        '[Kiosk] Cannot start recording: sessionId is missing',
-      );
+  if (!currentSessionId) {
+    console.warn(
+      '[Kiosk][VAD] Cannot start recording: sessionId is missing',
+    );
 
-      setIdle();
-      return;
-    }
+    setIdle();
+    return;
+  }
 
-    const currentState = sessionStateRef.current;
+  const currentState = sessionStateRef.current;
 
-    if (!currentState) {
-      console.warn(
-        '[Kiosk] Cannot start recording: session state is missing',
-      );
+  if (!currentState) {
+    console.warn(
+      '[Kiosk][VAD] Cannot start recording: session state is missing',
+    );
 
-      setIdle();
-      return;
-    }
+    setIdle();
+    return;
+  }
 
-    try {
-      console.log('[Kiosk] Starting recording...', {
-        sessionId: currentSessionId,
-        state: currentState,
-      });
+  console.log('========================================');
+  console.log('[Kiosk][VAD] START RECORDING');
+  console.log('========================================');
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+  console.log('[Kiosk][VAD] Configuration:', {
+    SPEAKING_THRESHOLD,
+    SILENCE_THRESHOLD,
+    SILENCE_DURATION: `${SILENCE_DURATION} ms`,
+    MAX_RECORD_TIME: `${MAX_RECORD_TIME} ms`,
+    NO_SPEECH_TIMEOUT: `${NO_SPEECH_TIMEOUT} ms`,
+  });
+
+  console.log('[Kiosk][VAD] Session:', {
+    sessionId: currentSessionId,
+    state: currentState,
+    gateId,
+  });
+
+  try {
+    const stream =
+      await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
 
-      mediaStreamRef.current = stream;
+    mediaStreamRef.current = stream;
 
-      // Prefer WebM/Opus.
-      // Fall back to Ogg if necessary.
-      let mimeType = '';
+    console.log('[Kiosk][VAD] Microphone access granted.');
 
+    // ----------------------------------------------------------
+    // Select supported recording format
+    // ----------------------------------------------------------
+
+    let mimeType = '';
+
+    if (
+      MediaRecorder.isTypeSupported(
+        'audio/webm;codecs=opus',
+      )
+    ) {
+      mimeType = 'audio/webm;codecs=opus';
+    } else if (
+      MediaRecorder.isTypeSupported('audio/webm')
+    ) {
+      mimeType = 'audio/webm';
+    } else if (
+      MediaRecorder.isTypeSupported(
+        'audio/ogg;codecs=opus',
+      )
+    ) {
+      mimeType = 'audio/ogg;codecs=opus';
+    }
+
+    console.log('[Kiosk][VAD] Selected MIME type:', mimeType || 'browser default');
+
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+
+    mediaRecorderRef.current = recorder;
+
+    const chunks: BlobPart[] = [];
+
+    let hasStartedSpeaking = false;
+    let silenceStartedAt: number | null = null;
+
+    // ----------------------------------------------------------
+    // VAD logging
+    //
+    // We don't log every animation frame because that would
+    // produce thousands of console messages.
+    //
+    // Instead, log approximately every 100ms.
+    // ----------------------------------------------------------
+
+    let lastVadLogTime = 0;
+
+    const recordingStartedAt = Date.now();
+
+    // ----------------------------------------------------------
+    // Audio analysis
+    // ----------------------------------------------------------
+
+    const audioContext = new AudioContext();
+
+    audioContextRef.current = audioContext;
+
+    const source =
+      audioContext.createMediaStreamSource(stream);
+
+    const analyser =
+      audioContext.createAnalyser();
+
+    analyser.fftSize = 2048;
+
+    source.connect(analyser);
+
+    const dataArray = new Uint8Array(
+      analyser.fftSize,
+    );
+
+    // ----------------------------------------------------------
+    // VAD loop
+    // ----------------------------------------------------------
+
+    const checkAudioLevel = () => {
       if (
-        MediaRecorder.isTypeSupported(
-          'audio/webm;codecs=opus',
-        )
+        !mediaRecorderRef.current ||
+        mediaRecorderRef.current.state === 'inactive'
       ) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if (
-        MediaRecorder.isTypeSupported(
-          'audio/webm',
-        )
-      ) {
-        mimeType = 'audio/webm';
-      } else if (
-        MediaRecorder.isTypeSupported(
-          'audio/ogg;codecs=opus',
-        )
-      ) {
-        mimeType = 'audio/ogg;codecs=opus';
+        return;
       }
 
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
+      analyser.getByteTimeDomainData(dataArray);
 
-      mediaRecorderRef.current = recorder;
+      let sum = 0;
 
-      const chunks: BlobPart[] = [];
+      for (let i = 0; i < dataArray.length; i++) {
+        const normalized =
+          (dataArray[i] - 128) / 128;
 
-      let hasStartedSpeaking = false;
-      let silenceStartedAt: number | null = null;
+        sum += normalized * normalized;
+      }
 
-      // ----------------------------------------------------------
-      // Audio analysis for voice activity detection
-      // ----------------------------------------------------------
-
-      const audioContext = new AudioContext();
-
-      audioContextRef.current = audioContext;
-
-      const source =
-        audioContext.createMediaStreamSource(stream);
-
-      const analyser =
-        audioContext.createAnalyser();
-
-      analyser.fftSize = 2048;
-
-      source.connect(analyser);
-
-      const dataArray = new Uint8Array(
-        analyser.fftSize,
+      const rms = Math.sqrt(
+        sum / dataArray.length,
       );
 
-      const checkAudioLevel = () => {
-        if (
-          !mediaRecorderRef.current ||
-          mediaRecorderRef.current.state === 'inactive'
-        ) {
-          return;
-        }
+      const now = Date.now();
 
-        analyser.getByteTimeDomainData(dataArray);
+      const recordingDuration =
+        now - recordingStartedAt;
 
-        let sum = 0;
+      // --------------------------------------------------------
+      // Threshold status
+      // --------------------------------------------------------
 
-        for (let i = 0; i < dataArray.length; i++) {
-          const normalized =
-            (dataArray[i] - 128) / 128;
+      const reachedSpeakingThreshold =
+        rms >= SPEAKING_THRESHOLD;
 
-          sum += normalized * normalized;
-        }
+      const belowSilenceThreshold =
+        rms < SILENCE_THRESHOLD;
 
-        const rms = Math.sqrt(
-          sum / dataArray.length,
-        );
+      let silenceDuration = 0;
 
-        // User started speaking.
-        if (
-          !hasStartedSpeaking &&
-          rms >= SPEAKING_THRESHOLD
-        ) {
-          hasStartedSpeaking = true;
-          silenceStartedAt = null;
+      if (silenceStartedAt !== null) {
+        silenceDuration =
+          now - silenceStartedAt;
+      }
 
-          console.log(
-            '[Kiosk] Speech detected',
-          );
-        }
+      // --------------------------------------------------------
+      // Detailed VAD logging
+      // --------------------------------------------------------
 
-        // After speech has started,
-        // detect silence.
-        if (hasStartedSpeaking) {
-          if (rms < SILENCE_THRESHOLD) {
-            if (silenceStartedAt === null) {
-              silenceStartedAt = Date.now();
-            } else {
-              const silenceDuration =
-                Date.now() - silenceStartedAt;
+      if (now - lastVadLogTime >= 100) {
+        lastVadLogTime = now;
 
-              if (
-                silenceDuration >=
-                SILENCE_DURATION
-              ) {
-                console.log(
-                  '[Kiosk] Silence detected. Stopping recording.',
-                );
+        console.log('[Kiosk][VAD] Audio level:', {
+          rms: Number(rms.toFixed(4)),
 
-                stopRecording();
-                return;
-              }
-            }
+          speakingThreshold: SPEAKING_THRESHOLD,
+          silenceThreshold: SILENCE_THRESHOLD,
+
+          reachedSpeakingThreshold,
+          belowSilenceThreshold,
+
+          hasStartedSpeaking,
+
+          silenceStarted:
+            silenceStartedAt !== null,
+
+          silenceDuration: `${silenceDuration} ms`,
+
+          requiredSilenceDuration:
+            `${SILENCE_DURATION} ms`,
+
+          recordingDuration:
+            `${recordingDuration} ms`,
+
+          maxRecordTime:
+            `${MAX_RECORD_TIME} ms`,
+        });
+      }
+
+      // --------------------------------------------------------
+      // SPEECH DETECTION
+      // --------------------------------------------------------
+
+      if (
+        !hasStartedSpeaking &&
+        reachedSpeakingThreshold
+      ) {
+        hasStartedSpeaking = true;
+
+        silenceStartedAt = null;
+
+        console.log('========================================');
+        console.log('[Kiosk][VAD] 🗣️ SPEECH DETECTED');
+        console.log('========================================');
+
+        console.log('[Kiosk][VAD] Speech detection details:', {
+          rms: Number(rms.toFixed(4)),
+          speakingThreshold: SPEAKING_THRESHOLD,
+          difference: Number(
+            (rms - SPEAKING_THRESHOLD).toFixed(4),
+          ),
+          recordingDuration:
+            `${recordingDuration} ms`,
+        });
+      }
+
+      // --------------------------------------------------------
+      // SILENCE DETECTION
+      // --------------------------------------------------------
+
+      if (hasStartedSpeaking) {
+        if (belowSilenceThreshold) {
+          // First frame below silence threshold
+          if (silenceStartedAt === null) {
+            silenceStartedAt = now;
+
+            console.log(
+              '[Kiosk][VAD] Silence started.',
+            );
+
+            console.log(
+              '[Kiosk][VAD] Silence details:',
+              {
+                rms: Number(rms.toFixed(4)),
+                silenceThreshold:
+                  SILENCE_THRESHOLD,
+                recordingDuration:
+                  `${recordingDuration} ms`,
+              },
+            );
           } else {
-            silenceStartedAt = null;
+            silenceDuration =
+              now - silenceStartedAt;
+
+            // --------------------------------------------------
+            // Required silence reached
+            // --------------------------------------------------
+
+            if (
+              silenceDuration >=
+              SILENCE_DURATION
+            ) {
+              console.log(
+                '========================================',
+              );
+
+              console.log(
+                '[Kiosk][VAD] 🤫 SILENCE THRESHOLD REACHED',
+              );
+
+              console.log(
+                '========================================',
+              );
+
+              console.log(
+                '[Kiosk][VAD] Silence details:',
+                {
+                  rms: Number(rms.toFixed(4)),
+                  silenceThreshold:
+                    SILENCE_THRESHOLD,
+
+                  silenceDuration:
+                    `${silenceDuration} ms`,
+
+                  requiredSilence:
+                    `${SILENCE_DURATION} ms`,
+
+                  recordingDuration:
+                    `${recordingDuration} ms`,
+                },
+              );
+
+              stopRecording();
+
+              return;
+            }
           }
-        }
-
-        animationFrameRef.current =
-          requestAnimationFrame(checkAudioLevel);
-      };
-
-      // ----------------------------------------------------------
-      // Recorder events
-      // ----------------------------------------------------------
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        console.log(
-          '[Kiosk] Recording stopped.',
-        );
-
-        isRecordingRef.current = false;
-        setIsRecording(false);
-
-        // The kiosk is no longer listening.
-        // It is now waiting for the backend response.
-        setIdle();
-
-        cleanupRecording();
-
-        mediaRecorderRef.current = null;
-
-        if (chunks.length === 0) {
-          console.warn(
-            '[Kiosk] No audio chunks were recorded.',
-          );
-
-          setIdle();
-          return;
-        }
-
-        try {
-          const blob = new Blob(chunks, {
-            type:
-              mimeType ||
-              'audio/webm',
-          });
-
-          const arrayBuffer =
-            await blob.arrayBuffer();
-
-          const currentSessionId =
-            sessionIdRef.current;
-
-          if (!currentSessionId) {
-            console.warn(
-              '[Kiosk] Cannot emit INPUT: sessionId is missing.',
+        } else {
+          // User is speaking again.
+          if (silenceStartedAt !== null) {
+            console.log(
+              '[Kiosk][VAD] Speech resumed.',
             );
 
-            setIdle();
-            return;
-          }
-
-          const currentState =
-            sessionStateRef.current;
-
-          if (!currentState) {
-            console.warn(
-              '[Kiosk] Cannot emit INPUT: session state is missing.',
+            console.log(
+              '[Kiosk][VAD] Previous silence duration:',
+              `${now - silenceStartedAt} ms`,
             );
-
-            setIdle();
-            return;
           }
 
-          // ------------------------------------------------------
-          // Frontend -> Backend
-          //
-          // The frontend does NOT decide what the user's answer
-          // means.
-          //
-          // It simply sends:
-          // - sessionId
-          // - gateId
-          // - current backend state
-          // - recorded audio
-          //
-          // Backend will:
-          // INPUT
-          //   -> STT
-          //   -> NLU
-          //   -> business logic
-          // ------------------------------------------------------
-
-          console.log(
-            '[Kiosk] Sending INPUT:',
-            {
-              sessionId: currentSessionId,
-              gateId,
-              state: currentState,
-              audioBytes: arrayBuffer.byteLength,
-            },
-          );
-
-          emitInput({
-            sessionId: currentSessionId,
-            gateId,
-            state: currentState,
-            audio: arrayBuffer,
-          });
-        } catch (error) {
-          console.error(
-            '[Kiosk] Failed to process recorded audio:',
-            error,
-          );
-
-          setIdle();
+          silenceStartedAt = null;
         }
-      };
+      }
 
-      recorder.onerror = (event) => {
-        console.error(
-          '[Kiosk] MediaRecorder error:',
-          event,
+      // --------------------------------------------------------
+      // Continue VAD loop
+      // --------------------------------------------------------
+
+      animationFrameRef.current =
+        requestAnimationFrame(
+          checkAudioLevel,
         );
+    };
 
-        isRecordingRef.current = false;
-        setIsRecording(false);
+    // ----------------------------------------------------------
+    // Recorder events
+    // ----------------------------------------------------------
 
-        cleanupRecording();
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
 
-        mediaRecorderRef.current = null;
+    // ----------------------------------------------------------
+    // Recording stopped
+    // ----------------------------------------------------------
 
-        setIdle();
-      };
+    recorder.onstop = async () => {
+      const recordingDuration =
+        Date.now() - recordingStartedAt;
 
-      // ----------------------------------------------------------
-      // Start recording
-      // ----------------------------------------------------------
-
-      recorder.start();
-
-      isRecordingRef.current = true;
-      setIsRecording(true);
-      setState('listening');
+      console.log('========================================');
+      console.log('[Kiosk][VAD] RECORDING STOPPED');
+      console.log('========================================');
 
       console.log(
-        '[Kiosk] Recording started.',
+        '[Kiosk][VAD] Final recording information:',
+        {
+          recordingDuration,
+          recordingDurationSeconds:
+            Number(
+              (
+                recordingDuration / 1000
+              ).toFixed(2),
+            ),
+
+          hasStartedSpeaking,
+
+          chunks: chunks.length,
+
+          maxRecordTime:
+            `${MAX_RECORD_TIME} ms`,
+
+          noSpeechTimeout:
+            `${NO_SPEECH_TIMEOUT} ms`,
+
+          silenceDuration:
+            `${SILENCE_DURATION} ms`,
+
+          speakingThreshold:
+            SPEAKING_THRESHOLD,
+
+          silenceThreshold:
+            SILENCE_THRESHOLD,
+        },
       );
 
-      // ----------------------------------------------------------
-      // No speech timeout
-      //
-      // If the user does not speak at all for 7 seconds,
-      // stop recording.
-      // ----------------------------------------------------------
+      console.log('========================================');
 
-      noSpeechTimeoutRef.current =
-        setTimeout(() => {
-          if (!hasStartedSpeaking) {
-            console.log(
-              '[Kiosk] No speech detected. Stopping recording.',
-            );
+      isRecordingRef.current = false;
+      setIsRecording(false);
 
-            stopRecording();
-          }
-        }, NO_SPEECH_TIMEOUT);
-
-      // ----------------------------------------------------------
-      // Maximum recording timeout
-      // ----------------------------------------------------------
-
-      maxRecordTimeoutRef.current =
-        setTimeout(() => {
-          console.log(
-            '[Kiosk] Maximum recording time reached.',
-          );
-
-          stopRecording();
-        }, MAX_RECORD_TIME);
-
-      // Start VAD loop.
-      checkAudioLevel();
-    } catch (error) {
-      console.error(
-        '[Kiosk] Failed to start recording:',
-        error,
-      );
+      // The kiosk is no longer listening.
+      setIdle();
 
       cleanupRecording();
 
       mediaRecorderRef.current = null;
 
+      if (chunks.length === 0) {
+        console.warn(
+          '[Kiosk][VAD] No audio chunks were recorded.',
+        );
+
+        setIdle();
+        return;
+      }
+
+      try {
+        const blob = new Blob(chunks, {
+          type:
+            mimeType ||
+            'audio/webm',
+        });
+
+        const arrayBuffer =
+          await blob.arrayBuffer();
+
+        const currentSessionId =
+          sessionIdRef.current;
+
+        if (!currentSessionId) {
+          console.warn(
+            '[Kiosk] Cannot emit INPUT: sessionId is missing.',
+          );
+
+          setIdle();
+          return;
+        }
+
+        const currentState =
+          sessionStateRef.current;
+
+        if (!currentState) {
+          console.warn(
+            '[Kiosk] Cannot emit INPUT: session state is missing.',
+          );
+
+          setIdle();
+          return;
+        }
+
+        console.log(
+          '[Kiosk] Sending INPUT:',
+          {
+            sessionId: currentSessionId,
+            gateId,
+            state: currentState,
+            audioBytes:
+              arrayBuffer.byteLength,
+          },
+        );
+
+        emitInput({
+          sessionId: currentSessionId,
+          gateId,
+          state: currentState,
+          audio: arrayBuffer,
+        });
+      } catch (error) {
+        console.error(
+          '[Kiosk] Failed to process recorded audio:',
+          error,
+        );
+
+        setIdle();
+      }
+    };
+
+    // ----------------------------------------------------------
+    // Recorder error
+    // ----------------------------------------------------------
+
+    recorder.onerror = (event) => {
+      console.error(
+        '[Kiosk][VAD] MediaRecorder error:',
+        event,
+      );
+
       isRecordingRef.current = false;
       setIsRecording(false);
+
+      cleanupRecording();
+
+      mediaRecorderRef.current = null;
+
       setIdle();
-    }
-  };
+    };
+
+    // ----------------------------------------------------------
+    // Start recording
+    // ----------------------------------------------------------
+
+    recorder.start();
+
+    isRecordingRef.current = true;
+    setIsRecording(true);
+    setState('listening');
+
+    console.log(
+      '[Kiosk][VAD] Recording started.',
+    );
+
+    console.log(
+      '[Kiosk][VAD] Waiting for speech...',
+    );
+
+    console.log(
+      '[Kiosk][VAD] Speaking threshold:',
+      SPEAKING_THRESHOLD,
+    );
+
+    console.log(
+      '[Kiosk][VAD] Silence threshold:',
+      SILENCE_THRESHOLD,
+    );
+
+    // ----------------------------------------------------------
+    // No speech timeout
+    // ----------------------------------------------------------
+
+    noSpeechTimeoutRef.current =
+      setTimeout(() => {
+        if (!hasStartedSpeaking) {
+          console.log(
+            '========================================',
+          );
+
+          console.log(
+            '[Kiosk][VAD] NO SPEECH TIMEOUT REACHED',
+          );
+
+          console.log(
+            '========================================',
+          );
+
+          console.log(
+            '[Kiosk][VAD] No speech detected for:',
+            `${NO_SPEECH_TIMEOUT} ms`,
+          );
+
+          console.log(
+            '[Kiosk][VAD] Required speaking threshold:',
+            SPEAKING_THRESHOLD,
+          );
+
+          console.log(
+            '[Kiosk][VAD] Last state:',
+            {
+              hasStartedSpeaking,
+              speakingThreshold:
+                SPEAKING_THRESHOLD,
+            },
+          );
+
+          console.log(
+            '========================================',
+          );
+
+          stopRecording();
+        }
+      }, NO_SPEECH_TIMEOUT);
+
+    // ----------------------------------------------------------
+    // Maximum recording timeout
+    // ----------------------------------------------------------
+
+    maxRecordTimeoutRef.current =
+      setTimeout(() => {
+        console.log(
+          '========================================',
+        );
+
+        console.log(
+          '[Kiosk][VAD] MAXIMUM RECORDING TIME REACHED',
+        );
+
+        console.log(
+          '========================================',
+        );
+
+        console.log(
+          '[Kiosk][VAD] Maximum allowed recording:',
+          `${MAX_RECORD_TIME} ms`,
+        );
+
+        console.log(
+          '[Kiosk][VAD] Has speech started:',
+          hasStartedSpeaking,
+        );
+
+        console.log(
+          '========================================',
+        );
+
+        stopRecording();
+      }, MAX_RECORD_TIME);
+
+    // ----------------------------------------------------------
+    // Start VAD
+    // ----------------------------------------------------------
+
+    checkAudioLevel();
+  } catch (error) {
+    console.error(
+      '[Kiosk][VAD] Failed to start recording:',
+      error,
+    );
+
+    cleanupRecording();
+
+    mediaRecorderRef.current = null;
+
+    isRecordingRef.current = false;
+
+    setIsRecording(false);
+
+    setIdle();
+  }
+};
 
   // ------------------------------------------------------------
   // Unlock browser audio
   // ------------------------------------------------------------
 
   const unlockAudio = async () => {
-    // Hide the "Start Kiosk" overlay immediately on tap,
-    // so the customer never sees a delay. The actual audio
-    // unlock work below still runs the same as before.
     setAudioUnlocked(true);
 
     try {
@@ -593,145 +836,162 @@ function KioskPageContent() {
   };
 
   // ------------------------------------------------------------
-  // Submit customer name (TEXT input, state === NAME_ASKING)
+  // Submit name
   // ------------------------------------------------------------
 
   const submitName = () => {
-    const name = nameInput.trim();
+    const name =
+      nameInput.trim();
 
     if (!name) {
       return;
     }
 
-    const currentSessionId = sessionIdRef.current;
+    const currentSessionId =
+      sessionIdRef.current;
 
     if (!currentSessionId) {
       console.warn(
         '[Kiosk] Cannot submit name: sessionId is missing',
       );
+
       return;
     }
 
     console.log(
       '[Kiosk] Sending INPUT:',
       {
-        sessionId: currentSessionId,
+        sessionId:
+          currentSessionId,
         gateId,
-        state: 'NAME_ASKING',
+        state:
+          'NAME_ASKING',
         audioBytes: 0,
         text: name,
       },
     );
 
     emitInput({
-      sessionId: currentSessionId,
+      sessionId:
+        currentSessionId,
       gateId,
-      state: 'NAME_ASKING',
+      state:
+        'NAME_ASKING',
       text: name,
     });
 
-    // Hide keyboard immediately so it can't be submitted twice
-    // while waiting for the backend's next OUTPUT.
-    // Do NOT manually change the kiosk/business state — the
-    // backend will send the next OUTPUT.
     setShowNameInput(false);
+
     setNameInput('');
 
     setIdle();
   };
 
   // ------------------------------------------------------------
-  // Submit phone number (TEXT input, state === PHONE_ASKING)
+  // Submit phone
   // ------------------------------------------------------------
 
   const submitPhone = () => {
-    const phone = phoneInput.trim();
+    const phone =
+      phoneInput.trim();
 
     if (!phone) {
       return;
     }
 
-    const currentSessionId = sessionIdRef.current;
+    const currentSessionId =
+      sessionIdRef.current;
 
     if (!currentSessionId) {
       console.warn(
         '[Kiosk] Cannot submit phone number: sessionId is missing',
       );
+
       return;
     }
 
     console.log(
       '[Kiosk] Sending INPUT:',
       {
-        sessionId: currentSessionId,
+        sessionId:
+          currentSessionId,
         gateId,
-        state: 'PHONE_ASKING',
+        state:
+          'PHONE_ASKING',
         audioBytes: 0,
         text: phone,
       },
     );
 
     emitInput({
-      sessionId: currentSessionId,
+      sessionId:
+        currentSessionId,
       gateId,
-      state: 'PHONE_ASKING',
+      state:
+        'PHONE_ASKING',
       text: phone,
     });
 
-    // Hide keyboard immediately. Do NOT manually move to
-    // GREETING/CONFIRMING_PHONE — wait for the backend OUTPUT.
     setShowPhoneInput(false);
+
     setPhoneInput('');
 
     setIdle();
   };
 
   // ------------------------------------------------------------
-  // Confirmation buttons (BUTTONS input, state === CONFIRMING_PHONE)
+  // Confirmation buttons
   // ------------------------------------------------------------
 
-  const sendConfirmation = (answer: 'نعم' | 'لا') => {
-    const currentSessionId = sessionIdRef.current;
+  const sendConfirmation = (
+    answer: 'نعم' | 'لا',
+  ) => {
+    const currentSessionId =
+      sessionIdRef.current;
 
     if (!currentSessionId) {
       console.warn(
         '[Kiosk] Cannot send confirmation: sessionId is missing',
       );
+
       return;
     }
 
     console.log(
       '[Kiosk] Sending INPUT:',
       {
-        sessionId: currentSessionId,
+        sessionId:
+          currentSessionId,
         gateId,
-        state: 'CONFIRMING_PHONE',
+        state:
+          'CONFIRMING_PHONE',
         audioBytes: 0,
         text: answer,
       },
     );
 
     emitInput({
-      sessionId: currentSessionId,
+      sessionId:
+        currentSessionId,
       gateId,
-      state: 'CONFIRMING_PHONE',
+      state:
+        'CONFIRMING_PHONE',
       text: answer,
     });
 
-    // Hide buttons immediately so they can't be pressed twice
-    // while waiting for the backend's next OUTPUT.
     setShowConfirmationButtons(false);
 
     setIdle();
   };
 
-  //-------------------------------------------------------------
-  //Set Idle function
-  //-------------------------------------------------------------
-const setIdle = () => {
-  setState('idle');
-  setMessage('');
-};
+  // ------------------------------------------------------------
+  // Set idle
+  // ------------------------------------------------------------
+
+  const setIdle = () => {
+    setState('idle');
+    setMessage('');
+  };
 
   // ------------------------------------------------------------
   // Backend OUTPUT listener
@@ -742,236 +1002,156 @@ const setIdle = () => {
       `[Kiosk] Setting up OUTPUT listener for ${gateId}`,
     );
 
-    // IMPORTANT:
-    // Subscribe BEFORE joining the room.
-    //
-    // This prevents a race where the backend sends OUTPUT
-    // immediately after the kiosk joins.
-    const unsubscribe = subscribeToOutput(
-      async (payload: KioskOutputPayload) => {
-        console.log(
-          '[Kiosk] OUTPUT received:',
-          payload,
-        );
-
-        const typedPayload =
-          payload as KioskOutputPayloadWithMode;
-
-        // ------------------------------------------------------
-        // Save backend session information
-        // ------------------------------------------------------
-
-        if (typedPayload.sessionId) {
-          sessionIdRef.current =
-            typedPayload.sessionId;
-
-          setSessionId(
-            typedPayload.sessionId,
-          );
-        }
-
-        // ------------------------------------------------------
-        // Save backend business state
-        //
-        // This is NOT the avatar state.
-        // ------------------------------------------------------
-
-        if (typedPayload.state) {
-          sessionStateRef.current =
-            typedPayload.state;
-
+    const unsubscribe =
+      subscribeToOutput(
+        async (
+          payload: KioskOutputPayload,
+        ) => {
           console.log(
-            '[Kiosk] Backend business state:',
-            typedPayload.state,
-          );
-        }
-
-        // ------------------------------------------------------
-        // Resolve inputMode.
-        //
-        // The backend is expected to always send inputMode now.
-        // If an older backend build omits it, fall back to the
-        // previous NAME_ASKING-implies-TEXT behavior so nothing
-        // breaks mid-rollout.
-        // ------------------------------------------------------
-
-        const resolvedInputMode: InputMode =
-          typedPayload.inputMode ??
-          (typedPayload.state === 'NAME_ASKING'
-            ? 'TEXT'
-            : 'VOICE');
-
-        inputModeRef.current = resolvedInputMode;
-
-        // Anything other than VOICE means: don't auto-start the
-        // mic after TTS, and keep the avatar idle instead.
-        textInputStateRef.current =
-          resolvedInputMode !== 'VOICE';
-
-        // ------------------------------------------------------
-        // Only one input UI at a time.
-        //
-        // Always hide every input control first, then show
-        // exactly the one the backend just asked for. This is
-        // what prevents two controls (e.g. keyboard + buttons)
-        // from ever appearing together.
-        // ------------------------------------------------------
-
-        hideAllInputUI();
-
-        if (resolvedInputMode === 'BUTTONS') {
-          setShowConfirmationButtons(true);
-        } else if (resolvedInputMode === 'TEXT') {
-          if (typedPayload.state === 'NAME_ASKING') {
-            setShowNameInput(true);
-          } else if (typedPayload.state === 'PHONE_ASKING') {
-            setShowPhoneInput(true);
-          }
-        }
-
-        // Clear any stale keystrokes left over from a previous
-        // turn that isn't the one currently being shown.
-        if (
-          !(
-            resolvedInputMode === 'TEXT' &&
-            typedPayload.state === 'NAME_ASKING'
-          )
-        ) {
-          setNameInput('');
-        }
-
-        if (
-          !(
-            resolvedInputMode === 'TEXT' &&
-            typedPayload.state === 'PHONE_ASKING'
-          )
-        ) {
-          setPhoneInput('');
-        }
-
-        // ------------------------------------------------------
-        // Update displayed message
-        // ------------------------------------------------------
-
-        setMessage(
-          typedPayload.message || '',
-        );
-
-        // ------------------------------------------------------
-        // Handle audio
-        //
-        // The backend still sends TTS even when inputMode is
-        // BUTTONS or TEXT, so we never return early here just
-        // because of the input mode — only the "what happens
-        // after TTS" branch differs.
-        // ------------------------------------------------------
-
-        if (!typedPayload.audio) {
-          console.warn(
-            '[Kiosk] OUTPUT has no audio.',
+            '[Kiosk] OUTPUT received:',
+            payload,
           );
 
-          if (!textInputStateRef.current) {
-            setState('listening');
-            startRecording();
-          } else {
-            setIdle();
-          }
+          const typedPayload =
+            payload as KioskOutputPayloadWithMode;
 
-          return;
-        }
-
-        try {
-          let audioBuffer: ArrayBuffer;
-
-          // ----------------------------------------------------
-          // Case 1: ArrayBuffer
-          // ----------------------------------------------------
+          // ------------------------------------------------------
+          // Session
+          // ------------------------------------------------------
 
           if (
-            typedPayload.audio instanceof
-            ArrayBuffer
+            typedPayload.sessionId
           ) {
-            audioBuffer =
-              typedPayload.audio;
+            sessionIdRef.current =
+              typedPayload.sessionId;
+
+            setSessionId(
+              typedPayload.sessionId,
+            );
           }
 
-          // ----------------------------------------------------
-          // Case 2: Uint8Array / typed array
-          // ----------------------------------------------------
+          // ------------------------------------------------------
+          // Backend business state
+          // ------------------------------------------------------
 
-          else if (
-            ArrayBuffer.isView(
-              typedPayload.audio,
-            )
-          ) {
-            const view =
-              typedPayload.audio as Uint8Array;
+          if (typedPayload.state) {
+            sessionStateRef.current =
+              typedPayload.state;
 
-            audioBuffer =
-              view.buffer.slice(
-                view.byteOffset,
-                view.byteOffset +
-                  view.byteLength,
-              ) as ArrayBuffer;
+            console.log(
+              '[Kiosk] Backend business state:',
+              typedPayload.state,
+            );
           }
 
-          // ----------------------------------------------------
-          // Case 3: Socket.IO / Node Buffer-like object
-          //
-          // Example:
-          // {
-          //   type: "Buffer",
-          //   data: [73, 68, 51, ...]
-          // }
-          // ----------------------------------------------------
+          // ------------------------------------------------------
+          // Resolve input mode
+          // ------------------------------------------------------
 
-          else if (
-            typedPayload.audio &&
-            typeof typedPayload.audio ===
-              'object' &&
-            'data' in typedPayload.audio
-          ) {
-            const bufferData =
-              (
-                typedPayload.audio as {
-                  data: number[];
-                }
-              ).data;
-
-            audioBuffer =
-              new Uint8Array(
-                bufferData,
-              ).buffer;
-          }
-
-          // ----------------------------------------------------
-          // Case 4: Array of numbers
-          // ----------------------------------------------------
-
-          else if (
-            Array.isArray(
-              typedPayload.audio,
-            )
-          ) {
-            audioBuffer =
-              new Uint8Array(
-                typedPayload.audio,
-              ).buffer;
-          }
-
-          // ----------------------------------------------------
-          // Unknown format
-          // ----------------------------------------------------
-
-          else {
-            console.error(
-              '[Kiosk] Unsupported audio format:',
-              typedPayload.audio,
+          const resolvedInputMode:
+            InputMode =
+            typedPayload.inputMode ??
+            (
+              typedPayload.state ===
+              'NAME_ASKING'
+                ? 'TEXT'
+                : 'VOICE'
             );
 
-            if (!textInputStateRef.current) {
-              setState('listening');
+          inputModeRef.current =
+            resolvedInputMode;
+
+          textInputStateRef.current =
+            resolvedInputMode !==
+            'VOICE';
+
+          // ------------------------------------------------------
+          // Input UI
+          // ------------------------------------------------------
+
+          hideAllInputUI();
+
+          if (
+            resolvedInputMode ===
+            'BUTTONS'
+          ) {
+            setShowConfirmationButtons(
+              true,
+            );
+          } else if (
+            resolvedInputMode ===
+            'TEXT'
+          ) {
+            if (
+              typedPayload.state ===
+              'NAME_ASKING'
+            ) {
+              setShowNameInput(
+                true,
+              );
+            } else if (
+              typedPayload.state ===
+              'PHONE_ASKING'
+            ) {
+              setShowPhoneInput(
+                true,
+              );
+            }
+          }
+
+          // ------------------------------------------------------
+          // Clear stale inputs
+          // ------------------------------------------------------
+
+          if (
+            !(
+              resolvedInputMode ===
+                'TEXT' &&
+              typedPayload.state ===
+                'NAME_ASKING'
+            )
+          ) {
+            setNameInput('');
+          }
+
+          if (
+            !(
+              resolvedInputMode ===
+                'TEXT' &&
+              typedPayload.state ===
+                'PHONE_ASKING'
+            )
+          ) {
+            setPhoneInput('');
+          }
+
+          // ------------------------------------------------------
+          // Message
+          // ------------------------------------------------------
+
+          setMessage(
+            typedPayload.message ||
+              '',
+          );
+
+          // ------------------------------------------------------
+          // No audio
+          // ------------------------------------------------------
+
+          if (
+            !typedPayload.audio
+          ) {
+            console.warn(
+              '[Kiosk] OUTPUT has no audio.',
+            );
+
+            if (
+              !textInputStateRef.current
+            ) {
+              setState(
+                'listening',
+              );
+
               startRecording();
             } else {
               setIdle();
@@ -981,128 +1161,240 @@ const setIdle = () => {
           }
 
           // ------------------------------------------------------
-          // Clean previous audio
+          // Audio processing
           // ------------------------------------------------------
 
-          cleanupAudio();
+          try {
+            let audioBuffer:
+              ArrayBuffer;
 
-          // ------------------------------------------------------
-          // Create browser audio URL
-          // ------------------------------------------------------
+            // Case 1: ArrayBuffer
+            if (
+              typedPayload.audio instanceof
+              ArrayBuffer
+            ) {
+              audioBuffer =
+                typedPayload.audio;
+            }
 
-          const audioBlob =
-            new Blob(
-              [audioBuffer],
-              {
-                type: 'audio/mpeg',
-              },
-            );
+            // Case 2: Typed array
+            else if (
+              ArrayBuffer.isView(
+                typedPayload.audio,
+              )
+            ) {
+              const view =
+                typedPayload.audio as Uint8Array;
 
-          const audioUrl =
-            URL.createObjectURL(
-              audioBlob,
-            );
+              audioBuffer =
+                view.buffer.slice(
+                  view.byteOffset,
+                  view.byteOffset +
+                    view.byteLength,
+                ) as ArrayBuffer;
+            }
 
-          audioUrlRef.current =
-            audioUrl;
+            // Case 3: Buffer-like
+            else if (
+              typedPayload.audio &&
+              typeof typedPayload.audio ===
+                'object' &&
+              'data' in
+                typedPayload.audio
+            ) {
+              const bufferData =
+                (
+                  typedPayload.audio as {
+                    data: number[];
+                  }
+                ).data;
 
-          const audio =
-            new Audio(audioUrl);
+              audioBuffer =
+                new Uint8Array(
+                  bufferData,
+                ).buffer;
+            }
 
-          currentAudioRef.current =
-            audio;
+            // Case 4: Number array
+            else if (
+              Array.isArray(
+                typedPayload.audio,
+              )
+            ) {
+              audioBuffer =
+                new Uint8Array(
+                  typedPayload.audio,
+                ).buffer;
+            }
 
-          // ------------------------------------------------------
-          // Audio starts
-          // ------------------------------------------------------
+            // Unknown format
+            else {
+              console.error(
+                '[Kiosk] Unsupported audio format:',
+                typedPayload.audio,
+              );
 
-          audio.onplay = () => {
-            console.log(
-              '[Kiosk] TTS started.',
-            );
+              if (
+                !textInputStateRef.current
+              ) {
+                setState(
+                  'listening',
+                );
 
-            setState('talking');
-          };
+                startRecording();
+              } else {
+                setIdle();
+              }
 
-          // ------------------------------------------------------
-          // Audio finishes
-          //
-          // inputMode === 'VOICE'  -> start microphone
-          // otherwise              -> stay idle, wait for
-          //                           button press / keyboard
-          //                           submit
-          // ------------------------------------------------------
-
-          audio.onended = () => {
-            console.log(
-              '[Kiosk] TTS finished.',
-            );
-
-            cleanupAudio();
-
-            if (textInputStateRef.current) {
-              setIdle();
               return;
             }
 
-            setState('listening');
-            startRecording();
-          };
+            // ----------------------------------------------------
+            // Cleanup previous audio
+            // ----------------------------------------------------
 
-          // ------------------------------------------------------
-          // Audio error
-          // ------------------------------------------------------
+            cleanupAudio();
 
-          audio.onerror = (event) => {
-            console.error(
-              '[Kiosk] Audio playback failed:',
+            // ----------------------------------------------------
+            // Create audio URL
+            // ----------------------------------------------------
+
+            const audioBlob =
+              new Blob(
+                [audioBuffer],
+                {
+                  type:
+                    'audio/mpeg',
+                },
+              );
+
+            const audioUrl =
+              URL.createObjectURL(
+                audioBlob,
+              );
+
+            audioUrlRef.current =
+              audioUrl;
+
+            const audio =
+              new Audio(
+                audioUrl,
+              );
+
+            currentAudioRef.current =
+              audio;
+
+            // ----------------------------------------------------
+            // Audio starts
+            // ----------------------------------------------------
+
+            audio.onplay = () => {
+              console.log(
+                '[Kiosk] TTS started.',
+              );
+
+              setState(
+                'talking',
+              );
+            };
+
+            // ----------------------------------------------------
+            // Audio finishes
+            // ----------------------------------------------------
+
+            audio.onended = () => {
+              console.log(
+                '[Kiosk] TTS finished.',
+              );
+
+              cleanupAudio();
+
+              if (
+                textInputStateRef.current
+              ) {
+                setIdle();
+
+                return;
+              }
+
+              setState(
+                'listening',
+              );
+
+              startRecording();
+            };
+
+            // ----------------------------------------------------
+            // Audio error
+            // ----------------------------------------------------
+
+            audio.onerror = (
               event,
+            ) => {
+              console.error(
+                '[Kiosk] Audio playback failed:',
+                event,
+              );
+
+              cleanupAudio();
+
+              if (
+                textInputStateRef.current
+              ) {
+                setIdle();
+
+                return;
+              }
+
+              setState(
+                'listening',
+              );
+
+              startRecording();
+            };
+
+            // ----------------------------------------------------
+            // Play TTS
+            // ----------------------------------------------------
+
+            await audio.play();
+
+            console.log(
+              '[Kiosk] Playing TTS audio.',
+            );
+          } catch (error) {
+            console.error(
+              '[Kiosk] Failed to play OUTPUT audio:',
+              error,
             );
 
             cleanupAudio();
 
-            if (textInputStateRef.current) {
+            if (
+              textInputStateRef.current
+            ) {
               setIdle();
+
               return;
             }
 
-            setState('listening');
+            setState(
+              'listening',
+            );
+
             startRecording();
-          };
-
-          // ------------------------------------------------------
-          // Play TTS
-          // ------------------------------------------------------
-
-          await audio.play();
-
-          console.log(
-            '[Kiosk] Playing TTS audio.',
-          );
-        } catch (error) {
-          console.error(
-            '[Kiosk] Failed to play OUTPUT audio:',
-            error,
-          );
-
-          cleanupAudio();
-
-          if (textInputStateRef.current) {
-            setIdle();
-            return;
           }
+        },
+      );
 
-          setState('listening');
-          startRecording();
-        }
-      },
+    // ----------------------------------------------------------
+    // Join gate room
+    // ----------------------------------------------------------
+
+    joinGateRoom(
+      gateId,
+      'kiosk',
     );
-
-    // ----------------------------------------------------------
-    // Join gate room AFTER subscription is ready
-    // ----------------------------------------------------------
-
-    joinGateRoom(gateId, 'kiosk');
 
     return () => {
       console.log(
@@ -1112,100 +1404,160 @@ const setIdle = () => {
       unsubscribe();
 
       stopRecording();
+
       cleanupRecording();
+
       cleanupAudio();
     };
   }, [gateId]);
 
   // ------------------------------------------------------------
-  // Kiosk hardening (UI-only)
-  //
-  // Prevents the page from feeling like a normal scrollable
-  // website: no overscroll bounce, no pull-to-refresh, no
-  // pinch-zoom, no text selection on kiosk chrome. Purely
-  // cosmetic/UX — does not touch session or business logic.
+  // Kiosk hardening
   // ------------------------------------------------------------
 
   useEffect(() => {
-    const { style } = document.body;
+    const { style } =
+      document.body;
 
-    const previousOverscroll = style.overscrollBehavior;
-    const previousUserSelect = style.userSelect;
-    const previousTouchAction = style.touchAction;
+    const previousOverscroll =
+      style.overscrollBehavior;
 
-    style.overscrollBehavior = 'none';
-    style.userSelect = 'none';
-    style.touchAction = 'manipulation';
+    const previousUserSelect =
+      style.userSelect;
+
+    const previousTouchAction =
+      style.touchAction;
+
+    style.overscrollBehavior =
+      'none';
+
+    style.userSelect =
+      'none';
+
+    style.touchAction =
+      'manipulation';
 
     return () => {
-      style.overscrollBehavior = previousOverscroll;
-      style.userSelect = previousUserSelect;
-      style.touchAction = previousTouchAction;
+      style.overscrollBehavior =
+        previousOverscroll;
+
+      style.userSelect =
+        previousUserSelect;
+
+      style.touchAction =
+        previousTouchAction;
     };
   }, []);
 
   // ------------------------------------------------------------
-  // Custom Arabic keyboard (NAME_ASKING)
+  // Arabic keyboard
   // ------------------------------------------------------------
 
-  const handleKeyboardPress = (key: string) => {
+  const handleKeyboardPress = (
+    key: string,
+  ) => {
     if (key === '⌫') {
       setNameInput((prev) =>
         prev.slice(0, -1),
       );
+
       return;
     }
 
     if (key === 'مسح') {
       setNameInput('');
+
       return;
     }
 
     if (key === 'مسافة') {
-      setNameInput((prev) =>
-        prev + ' ',
+      setNameInput(
+        (prev) =>
+          prev + ' ',
       );
+
       return;
     }
 
-    setNameInput((prev) =>
-      prev + key,
+    setNameInput(
+      (prev) =>
+        prev + key,
     );
   };
 
   // ------------------------------------------------------------
-  // Numeric keypad (PHONE_ASKING)
-  //
-  // Reuses the same keyboard architecture/classes as the Arabic
-  // keyboard — just a different key set and target state.
+  // Phone keypad
   // ------------------------------------------------------------
 
-  const handlePhoneKeyPress = (key: string) => {
+  const handlePhoneKeyPress = (
+    key: string,
+  ) => {
     if (key === '⌫') {
       setPhoneInput((prev) =>
         prev.slice(0, -1),
       );
+
       return;
     }
 
     if (key === 'مسح') {
       setPhoneInput('');
+
       return;
     }
 
-    setPhoneInput((prev) =>
-      prev + key,
+    setPhoneInput(
+      (prev) =>
+        prev + key,
     );
   };
 
   // ------------------------------------------------------------
-  // Render
+  // Keyboards
   // ------------------------------------------------------------
 
   const keyboardRows: string[][] = [
-    ['ض', 'ص', 'ث', 'ق', 'ف', 'غ', 'ع', 'ه', 'خ', 'ح', 'ج'],
-    ['د', 'ش', 'س', 'ي', 'ب', 'ل', 'ا', 'ت', 'ن', 'م', 'ك'],
-    ['ط', 'ئ', 'ء', 'ؤ', 'ر', 'لا', 'ى', 'ة', 'و', 'ز', 'ظ', 'إ', 'أ'],
+    [
+      'ض',
+      'ص',
+      'ث',
+      'ق',
+      'ف',
+      'غ',
+      'ع',
+      'ه',
+      'خ',
+      'ح',
+      'ج',
+    ],
+    [
+      'د',
+      'ش',
+      'س',
+      'ي',
+      'ب',
+      'ل',
+      'ا',
+      'ت',
+      'ن',
+      'م',
+      'ك',
+    ],
+    [
+      'ط',
+      'ئ',
+      'ء',
+      'ؤ',
+      'ر',
+      'لا',
+      'ى',
+      'ة',
+      'و',
+      'ز',
+      'ظ',
+      'إ',
+      'أ',
+    ],
   ];
 
   const phoneKeyboardRows: string[][] = [
@@ -1215,54 +1567,48 @@ const setIdle = () => {
     ['مسح', '0', '⌫'],
   ];
 
-  // Avatar stays hidden only while a full keyboard is active —
-  // the two confirmation buttons are compact enough to keep it
-  // visible, matching the existing kiosk design.
-  const isKeyboardActive = showNameInput || showPhoneInput;
+  const isKeyboardActive =
+    showNameInput ||
+    showPhoneInput;
+
+  // ------------------------------------------------------------
+  // Render
+  // ------------------------------------------------------------
 
   return (
     <main className="kiosk">
-      {/* ------------------------------------------------------
-          Status bar: gate identity only. sessionId is never
-          shown to the customer.
-      ------------------------------------------------------ */}
-
       <div className="kiosk-statusbar">
-        <span className="kiosk-brand">Toyota Smart Gate</span>
-        <span className="kiosk-gate-pill">بوابة {gateId}</span>
+        <span className="kiosk-brand">
+          Toyota Smart Gate
+        </span>
+
+        <span className="kiosk-gate-pill">
+          بوابة {gateId}
+        </span>
       </div>
 
-      {/* ------------------------------------------------------
-          Main stage
-      ------------------------------------------------------ */}
-
       <div className="kiosk-stage">
-        {/* --------------------------------------------------
-            Avatar
-
-            Hidden while a keyboard (name or phone) is active.
-            It appears again automatically once the keyboard
-            is dismissed.
-        -------------------------------------------------- */}
 
         {!isKeyboardActive && (
-          <div className={`kiosk-avatar-frame kiosk-avatar-frame--${state}`}>
-            <KioskAvatar state={state} size={340} />
+          <div
+            className={`kiosk-avatar-frame kiosk-avatar-frame--${state}`}
+          >
+            <KioskAvatar
+              state={state}
+              size={340}
+            />
           </div>
         )}
-
-        {/* --------------------------------------------------
-            Message
-        -------------------------------------------------- */}
 
         {message && (
           <p
             className="kiosk-message"
             dir="rtl"
             style={{
-              fontSize: isKeyboardActive
-                ? 'clamp(1.6rem, 3vw, 2.2rem)'
-                : undefined,
+              fontSize:
+                isKeyboardActive
+                  ? 'clamp(1.6rem, 3vw, 2.2rem)'
+                  : undefined,
             }}
           >
             {message}
@@ -1270,15 +1616,19 @@ const setIdle = () => {
         )}
 
         {/* --------------------------------------------------
-            CONFIRMATION BUTTONS (BUTTONS input mode,
-            state === CONFIRMING_PHONE)
+            Confirmation buttons
         -------------------------------------------------- */}
 
         {showConfirmationButtons && (
-          <div className="kiosk-confirm-wrap" dir="rtl">
+          <div
+            className="kiosk-confirm-wrap"
+            dir="rtl"
+          >
             <button
               type="button"
-              onClick={() => sendConfirmation('نعم')}
+              onClick={() =>
+                sendConfirmation('نعم')
+              }
               className="kiosk-confirm-btn kiosk-confirm-btn--yes"
             >
               نعم
@@ -1286,7 +1636,9 @@ const setIdle = () => {
 
             <button
               type="button"
-              onClick={() => sendConfirmation('لا')}
+              onClick={() =>
+                sendConfirmation('لا')
+              }
               className="kiosk-confirm-btn kiosk-confirm-btn--no"
             >
               لا
@@ -1295,13 +1647,11 @@ const setIdle = () => {
         )}
 
         {/* --------------------------------------------------
-            NAME INPUT + CUSTOM ARABIC KEYBOARD
-            (TEXT input mode, state === NAME_ASKING)
+            Name input
         -------------------------------------------------- */}
 
         {showNameInput && (
           <div className="kiosk-namecard">
-            {/* Name input */}
 
             <input
               type="text"
@@ -1312,31 +1662,51 @@ const setIdle = () => {
               className="kiosk-name-input"
             />
 
-            {/* Arabic keyboard */}
-
-            <div className="kiosk-keyboard" dir="rtl">
-              {keyboardRows.map((row, rowIndex) => (
-                <div className="kiosk-keyboard-row" key={rowIndex}>
-                  {row.map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => handleKeyboardPress(key)}
-                      className="kiosk-key"
-                    >
-                      {key}
-                    </button>
-                  ))}
-                </div>
-              ))}
+            <div
+              className="kiosk-keyboard"
+              dir="rtl"
+            >
+              {keyboardRows.map(
+                (
+                  row,
+                  rowIndex,
+                ) => (
+                  <div
+                    className="kiosk-keyboard-row"
+                    key={rowIndex}
+                  >
+                    {row.map(
+                      (key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() =>
+                            handleKeyboardPress(
+                              key,
+                            )
+                          }
+                          className="kiosk-key"
+                        >
+                          {key}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                ),
+              )}
             </div>
 
-            {/* Keyboard controls */}
-
-            <div className="kiosk-keyboard-controls" dir="rtl">
+            <div
+              className="kiosk-keyboard-controls"
+              dir="rtl"
+            >
               <button
                 type="button"
-                onClick={() => handleKeyboardPress('مسافة')}
+                onClick={() =>
+                  handleKeyboardPress(
+                    'مسافة',
+                  )
+                }
                 className="kiosk-key kiosk-key--wide"
               >
                 مسافة
@@ -1344,7 +1714,11 @@ const setIdle = () => {
 
               <button
                 type="button"
-                onClick={() => handleKeyboardPress('⌫')}
+                onClick={() =>
+                  handleKeyboardPress(
+                    '⌫',
+                  )
+                }
                 className="kiosk-key kiosk-key--control"
                 aria-label="حذف حرف"
               >
@@ -1353,14 +1727,16 @@ const setIdle = () => {
 
               <button
                 type="button"
-                onClick={() => handleKeyboardPress('مسح')}
+                onClick={() =>
+                  handleKeyboardPress(
+                    'مسح',
+                  )
+                }
                 className="kiosk-key kiosk-key--control"
               >
                 مسح
               </button>
             </div>
-
-            {/* Submit */}
 
             <button
               type="button"
@@ -1374,13 +1750,11 @@ const setIdle = () => {
         )}
 
         {/* --------------------------------------------------
-            PHONE INPUT + NUMERIC KEYPAD
-            (TEXT input mode, state === PHONE_ASKING)
+            Phone input
         -------------------------------------------------- */}
 
         {showPhoneInput && (
           <div className="kiosk-namecard">
-            {/* Phone input */}
 
             <input
               type="tel"
@@ -1391,31 +1765,49 @@ const setIdle = () => {
               className="kiosk-name-input"
             />
 
-            {/* Numeric keypad */}
-
-            <div className="kiosk-keyboard" dir="rtl">
-              {phoneKeyboardRows.map((row, rowIndex) => (
-                <div className="kiosk-keyboard-row" key={rowIndex}>
-                  {row.map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => handlePhoneKeyPress(key)}
-                      className={
-                        key === '⌫' || key === 'مسح'
-                          ? 'kiosk-key kiosk-key--control'
-                          : 'kiosk-key'
-                      }
-                      aria-label={key === '⌫' ? 'حذف رقم' : undefined}
-                    >
-                      {key}
-                    </button>
-                  ))}
-                </div>
-              ))}
+            <div
+              className="kiosk-keyboard"
+              dir="rtl"
+            >
+              {phoneKeyboardRows.map(
+                (
+                  row,
+                  rowIndex,
+                ) => (
+                  <div
+                    className="kiosk-keyboard-row"
+                    key={rowIndex}
+                  >
+                    {row.map(
+                      (key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() =>
+                            handlePhoneKeyPress(
+                              key,
+                            )
+                          }
+                          className={
+                            key === '⌫' ||
+                            key === 'مسح'
+                              ? 'kiosk-key kiosk-key--control'
+                              : 'kiosk-key'
+                          }
+                          aria-label={
+                            key === '⌫'
+                              ? 'حذف رقم'
+                              : undefined
+                          }
+                        >
+                          {key}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                ),
+              )}
             </div>
-
-            {/* Submit */}
 
             <button
               type="button"
@@ -1433,20 +1825,29 @@ const setIdle = () => {
           Start Kiosk overlay
       ------------------------------------------------------ */}
 
-      {!audioUnlocked && !isKeyboardActive && (
-        <div className="kiosk-overlay">
-          <div className="kiosk-overlay-card">
-            <span className="kiosk-overlay-eyebrow">بوابة {gateId}</span>
-            <p className="kiosk-overlay-title">اضغط للبدء</p>
-            <button
-              onClick={unlockAudio}
-              className="kiosk-start-button"
-            >
-              Start Kiosk
-            </button>
+      {!audioUnlocked &&
+        !isKeyboardActive && (
+          <div className="kiosk-overlay">
+            <div className="kiosk-overlay-card">
+
+              <span className="kiosk-overlay-eyebrow">
+                بوابة {gateId}
+              </span>
+
+              <p className="kiosk-overlay-title">
+                اضغط للبدء
+              </p>
+
+              <button
+                onClick={unlockAudio}
+                className="kiosk-start-button"
+              >
+                Start Kiosk
+              </button>
+
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Inter:wght@500;600;700&display=swap');
@@ -1470,16 +1871,39 @@ const setIdle = () => {
           flex-direction: column;
           align-items: stretch;
           justify-content: flex-start;
+
           width: 100vw;
           height: 100dvh;
+
           overflow: hidden;
+
           background:
-            radial-gradient(120% 90% at 50% -10%, #1a2a52 0%, transparent 55%),
-            linear-gradient(160deg, var(--navy-900) 0%, var(--navy-800) 55%, var(--navy-950) 100%);
+            radial-gradient(
+              120% 90% at 50% -10%,
+              #1a2a52 0%,
+              transparent 55%
+            ),
+            linear-gradient(
+              160deg,
+              var(--navy-900) 0%,
+              var(--navy-800) 55%,
+              var(--navy-950) 100%
+            );
+
           color: var(--ink);
-          font-family: 'Tajawal', 'Inter', system-ui, -apple-system, sans-serif;
+
+          font-family:
+            'Tajawal',
+            'Inter',
+            system-ui,
+            -apple-system,
+            sans-serif;
+
           box-sizing: border-box;
-          padding: clamp(14px, 2vh, 28px) clamp(16px, 3vw, 40px);
+
+          padding:
+            clamp(14px, 2vh, 28px)
+            clamp(16px, 3vw, 40px);
         }
 
         .kiosk * {
@@ -1490,116 +1914,284 @@ const setIdle = () => {
           display: flex;
           align-items: center;
           justify-content: space-between;
+
           flex: 0 0 auto;
+
           gap: 12px;
         }
 
         .kiosk-brand {
-          font-size: clamp(0.95rem, 1.4vw, 1.3rem);
+          font-size:
+            clamp(0.95rem, 1.4vw, 1.3rem);
+
           font-weight: 600;
+
           letter-spacing: 0.02em;
+
           color: var(--ink-muted);
         }
 
         .kiosk-gate-pill {
-          font-size: clamp(1.5rem, 2.2vw, 2rem);
+          font-size:
+            clamp(1.5rem, 2.2vw, 2rem);
+
           font-weight: 700;
+
           color: var(--ink);
+
           background: var(--panel);
-          border: 1px solid var(--panel-border);
+
+          border:
+            1px solid
+            var(--panel-border);
+
           border-radius: 999px;
+
           padding: 0.4em 1.1em;
+
           backdrop-filter: blur(6px);
         }
 
         .kiosk-stage {
           flex: 1 1 auto;
+
           min-height: 0;
+
           display: flex;
           flex-direction: column;
+
           align-items: center;
           justify-content: center;
-          gap: clamp(14px, 2.4vh, 28px);
+
+          gap:
+            clamp(
+              14px,
+              2.4vh,
+              28px
+            );
+
           text-align: center;
         }
 
         .kiosk-avatar-frame {
           position: relative;
+
           display: flex;
+
           align-items: center;
           justify-content: center;
-          padding: clamp(10px, 1.6vh, 18px);
+
+          padding:
+            clamp(
+              10px,
+              1.6vh,
+              18px
+            );
+
           border-radius: 50%;
-          background: radial-gradient(closest-side, rgba(235, 10, 30, 0.12), transparent 72%);
-          transition: background 0.3s ease;
+
+          background:
+            radial-gradient(
+              closest-side,
+              rgba(
+                235,
+                10,
+                30,
+                0.12
+              ),
+              transparent 72%
+            );
+
+          transition:
+            background 0.3s ease;
         }
 
         .kiosk-avatar-frame::before {
           content: '';
+
           position: absolute;
+
           inset: 6%;
+
           border-radius: 50%;
-          border: 1.5px solid var(--panel-border);
-          transition: border-color 0.3s ease, box-shadow 0.3s ease;
+
+          border:
+            1.5px solid
+            var(--panel-border);
+
+          transition:
+            border-color 0.3s ease,
+            box-shadow 0.3s ease;
         }
 
         .kiosk-avatar-frame--listening::before {
-          border-color: rgba(235, 10, 30, 0.55);
-          box-shadow: 0 0 0 6px rgba(235, 10, 30, 0.08);
+          border-color:
+            rgba(
+              235,
+              10,
+              30,
+              0.55
+            );
+
+          box-shadow:
+            0 0 0 6px
+            rgba(
+              235,
+              10,
+              30,
+              0.08
+            );
         }
 
         .kiosk-avatar-frame--talking::before {
-          border-color: rgba(120, 170, 255, 0.5);
-          box-shadow: 0 0 0 6px rgba(120, 170, 255, 0.08);
+          border-color:
+            rgba(
+              120,
+              170,
+              255,
+              0.5
+            );
+
+          box-shadow:
+            0 0 0 6px
+            rgba(
+              120,
+              170,
+              255,
+              0.08
+            );
         }
 
         .kiosk-message {
           max-width: 22ch;
+
           margin: 0;
-          font-size: clamp(2.4rem, 5vw, 4rem);
+
+          font-size:
+            clamp(
+              2.4rem,
+              5vw,
+              4rem
+            );
+
           font-weight: 800;
+
           line-height: 1.25;
+
           color: var(--ink);
+
           text-wrap: balance;
         }
 
         .kiosk-confirm-wrap {
           display: flex;
-          gap: clamp(12px, 2vw, 24px);
-          width: min(94vw, 640px);
-          animation: kiosk-rise 0.32s ease;
+
+          gap:
+            clamp(
+              12px,
+              2vw,
+              24px
+            );
+
+          width:
+            min(
+              94vw,
+              640px
+            );
+
+          animation:
+            kiosk-rise
+            0.32s ease;
         }
 
         .kiosk-confirm-btn {
           flex: 1;
-          min-height: clamp(70px, 10vh, 100px);
+
+          min-height:
+            clamp(
+              70px,
+              10vh,
+              100px
+            );
+
           font-family: inherit;
-          font-size: clamp(1.8rem, 3vw, 2.4rem);
+
+          font-size:
+            clamp(
+              1.8rem,
+              3vw,
+              2.4rem
+            );
+
           font-weight: 800;
+
           border-radius: 18px;
+
           cursor: pointer;
-          transition: transform 0.08s ease, box-shadow 0.15s ease, background 0.12s ease;
+
+          transition:
+            transform 0.08s ease,
+            box-shadow 0.15s ease,
+            background 0.12s ease;
         }
 
         .kiosk-confirm-btn--yes {
           color: #ffffff;
-          background: linear-gradient(135deg, var(--toyota-red) 0%, var(--toyota-red-dim) 100%);
+
+          background:
+            linear-gradient(
+              135deg,
+              var(--toyota-red) 0%,
+              var(--toyota-red-dim) 100%
+            );
+
           border: none;
-          box-shadow: 0 10px 24px rgba(235, 10, 30, 0.35);
+
+          box-shadow:
+            0 10px 24px
+            rgba(
+              235,
+              10,
+              30,
+              0.35
+            );
         }
 
         .kiosk-confirm-btn--yes:hover {
-          box-shadow: 0 12px 30px rgba(235, 10, 30, 0.45);
+          box-shadow:
+            0 12px 30px
+            rgba(
+              235,
+              10,
+              30,
+              0.45
+            );
         }
 
         .kiosk-confirm-btn--no {
           color: var(--ink);
-          background: rgba(255, 255, 255, 0.06);
-          border: 1.5px solid var(--panel-border);
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.06
+            );
+
+          border:
+            1.5px solid
+            var(--panel-border);
         }
 
         .kiosk-confirm-btn--no:hover {
-          background: rgba(255, 255, 255, 0.1);
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.1
+            );
         }
 
         .kiosk-confirm-btn:active {
@@ -1607,114 +2199,321 @@ const setIdle = () => {
         }
 
         .kiosk-confirm-btn:focus-visible {
-          outline: 3px solid rgba(120, 170, 255, 0.7);
+          outline:
+            3px solid
+            rgba(
+              120,
+              170,
+              255,
+              0.7
+            );
+
           outline-offset: 3px;
         }
 
         .kiosk-namecard {
-          width: min(94vw, 780px);
+          width:
+            min(
+              94vw,
+              780px
+            );
+
           display: flex;
+
           flex-direction: column;
+
           align-items: stretch;
-          gap: clamp(8px, 1.4vh, 14px);
+
+          gap:
+            clamp(
+              8px,
+              1.4vh,
+              14px
+            );
+
           background: var(--panel);
-          border: 1px solid var(--panel-border);
+
+          border:
+            1px solid
+            var(--panel-border);
+
           border-radius: 22px;
-          padding: clamp(14px, 2vh, 22px);
+
+          padding:
+            clamp(
+              14px,
+              2vh,
+              22px
+            );
+
           backdrop-filter: blur(10px);
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-          animation: kiosk-rise 0.32s ease;
+
+          box-shadow:
+            0 20px 60px
+            rgba(
+              0,
+              0,
+              0,
+              0.35
+            );
+
+          animation:
+            kiosk-rise
+            0.32s ease;
         }
 
         .kiosk-name-input {
           width: 100%;
-          padding: 0.5em 0.8em;
+
+          padding:
+            0.5em
+            0.8em;
+
           font-family: inherit;
-          font-size: clamp(2.5rem, 4vw, 3rem);
+
+          font-size:
+            clamp(
+              2.5rem,
+              4vw,
+              3rem
+            );
+
           font-weight: 700;
+
           text-align: right;
+
           color: var(--ink);
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid var(--panel-border);
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.06
+            );
+
+          border:
+            1px solid
+            var(--panel-border);
+
           border-radius: 14px;
+
           outline: none;
+
           min-height: 1.9em;
         }
 
         .kiosk-keyboard {
           display: flex;
+
           flex-direction: column;
-          gap: clamp(5px, 0.9vh, 9px);
-          animation: kiosk-rise 0.36s ease;
+
+          gap:
+            clamp(
+              5px,
+              0.9vh,
+              9px
+            );
+
+          animation:
+            kiosk-rise
+            0.36s ease;
         }
 
         .kiosk-keyboard-row {
           display: flex;
-          gap: clamp(4px, 0.7vw, 8px);
+
+          gap:
+            clamp(
+              4px,
+              0.7vw,
+              8px
+            );
         }
 
         .kiosk-keyboard-controls {
           display: flex;
-          gap: clamp(4px, 0.7vw, 8px);
+
+          gap:
+            clamp(
+              4px,
+              0.7vw,
+              8px
+            );
         }
 
         .kiosk-key {
           flex: 1;
-          min-height: clamp(46px, 6.5vh, 60px);
+
+          min-height:
+            clamp(
+              46px,
+              6.5vh,
+              60px
+            );
+
           font-family: inherit;
-          font-size: clamp(1.75rem, 2.4vw, 2.25rem);
+
+          font-size:
+            clamp(
+              1.75rem,
+              2.4vw,
+              2.25rem
+            );
+
           font-weight: 600;
+
           color: var(--ink);
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid var(--panel-border);
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.06
+            );
+
+          border:
+            1px solid
+            var(--panel-border);
+
           border-radius: 12px;
+
           cursor: pointer;
-          transition: background 0.12s ease, transform 0.08s ease, border-color 0.12s ease;
+
+          transition:
+            background 0.12s ease,
+            transform 0.08s ease,
+            border-color 0.12s ease;
         }
 
         .kiosk-key:hover {
-          background: rgba(255, 255, 255, 0.1);
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.1
+            );
         }
 
         .kiosk-key:active {
-          background: rgba(235, 10, 30, 0.28);
-          border-color: rgba(235, 10, 30, 0.6);
+          background:
+            rgba(
+              235,
+              10,
+              30,
+              0.28
+            );
+
+          border-color:
+            rgba(
+              235,
+              10,
+              30,
+              0.6
+            );
+
           transform: scale(0.96);
         }
 
         .kiosk-key:focus-visible {
-          outline: 3px solid rgba(120, 170, 255, 0.65);
+          outline:
+            3px solid
+            rgba(
+              120,
+              170,
+              255,
+              0.65
+            );
+
           outline-offset: 2px;
         }
 
         .kiosk-key--wide {
           flex: 3;
-          font-size: clamp(1.2rem, 1.8vw, 1.6rem);
+
+          font-size:
+            clamp(
+              1.2rem,
+              1.8vw,
+              1.6rem
+            );
         }
 
         .kiosk-key--control {
           flex: 1.2;
-          font-size: clamp(1.2rem, 1.8vw, 1.6rem);
+
+          font-size:
+            clamp(
+              1.2rem,
+              1.8vw,
+              1.6rem
+            );
         }
 
         .kiosk-send-button {
           margin-top: 2px;
+
           width: 100%;
-          min-height: clamp(56px, 7.5vh, 70px);
+
+          min-height:
+            clamp(
+              56px,
+              7.5vh,
+              70px
+            );
+
           font-family: inherit;
-          font-size: clamp(1.7rem, 2.6vw, 2.2rem);
+
+          font-size:
+            clamp(
+              1.7rem,
+              2.6vw,
+              2.2rem
+            );
+
           font-weight: 800;
+
           color: #ffffff;
-          background: linear-gradient(135deg, var(--toyota-red) 0%, var(--toyota-red-dim) 100%);
+
+          background:
+            linear-gradient(
+              135deg,
+              var(--toyota-red) 0%,
+              var(--toyota-red-dim) 100%
+            );
+
           border: none;
+
           border-radius: 14px;
+
           cursor: pointer;
-          box-shadow: 0 10px 24px rgba(235, 10, 30, 0.35);
-          transition: transform 0.08s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+
+          box-shadow:
+            0 10px 24px
+            rgba(
+              235,
+              10,
+              30,
+              0.35
+            );
+
+          transition:
+            transform 0.08s ease,
+            box-shadow 0.15s ease,
+            opacity 0.15s ease;
         }
 
         .kiosk-send-button:not(:disabled):hover {
-          box-shadow: 0 12px 30px rgba(235, 10, 30, 0.45);
+          box-shadow:
+            0 12px 30px
+            rgba(
+              235,
+              10,
+              30,
+              0.45
+            );
         }
 
         .kiosk-send-button:not(:disabled):active {
@@ -1722,70 +2521,190 @@ const setIdle = () => {
         }
 
         .kiosk-send-button:focus-visible {
-          outline: 3px solid rgba(120, 170, 255, 0.7);
+          outline:
+            3px solid
+            rgba(
+              120,
+              170,
+              255,
+              0.7
+            );
+
           outline-offset: 3px;
         }
 
         .kiosk-send-button:disabled {
           opacity: 0.4;
+
           cursor: not-allowed;
+
           box-shadow: none;
         }
 
         .kiosk-overlay {
           position: absolute;
+
           inset: 0;
+
           display: flex;
+
           align-items: center;
           justify-content: center;
-          background: rgba(6, 11, 20, 0.72);
+
+          background:
+            rgba(
+              6,
+              11,
+              20,
+              0.72
+            );
+
           backdrop-filter: blur(4px);
-          animation: kiosk-fade 0.25s ease;
+
+          animation:
+            kiosk-fade
+            0.25s ease;
         }
 
         .kiosk-overlay-card {
           display: flex;
+
           flex-direction: column;
+
           align-items: center;
-          gap: clamp(10px, 1.6vh, 18px);
-          padding: clamp(28px, 4vh, 48px) clamp(28px, 5vw, 56px);
+
+          gap:
+            clamp(
+              10px,
+              1.6vh,
+              18px
+            );
+
+          padding:
+            clamp(
+              28px,
+              4vh,
+              48px
+            )
+            clamp(
+              28px,
+              5vw,
+              56px
+            );
+
           background: var(--panel);
-          border: 1px solid var(--panel-border);
+
+          border:
+            1px solid
+            var(--panel-border);
+
           border-radius: 24px;
-          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+
+          box-shadow:
+            0 24px 70px
+            rgba(
+              0,
+              0,
+              0,
+              0.5
+            );
+
           text-align: center;
         }
 
         .kiosk-overlay-eyebrow {
-          font-size: clamp(1.4rem, 2vw, 1.8rem);
+          font-size:
+            clamp(
+              1.4rem,
+              2vw,
+              1.8rem
+            );
+
           font-weight: 700;
+
           color: var(--ink-muted);
         }
 
         .kiosk-overlay-title {
           margin: 0;
-          font-size: clamp(1.8rem, 2.6vw, 2.4rem);
+
+          font-size:
+            clamp(
+              1.8rem,
+              2.6vw,
+              2.4rem
+            );
+
           font-weight: 700;
+
           color: var(--ink);
         }
 
         .kiosk-start-button {
-          min-height: clamp(56px, 7.5vh, 70px);
-          padding: 0 clamp(28px, 4vw, 48px);
+          min-height:
+            clamp(
+              56px,
+              7.5vh,
+              70px
+            );
+
+          padding:
+            0
+            clamp(
+              28px,
+              4vw,
+              48px
+            );
+
           font-family: inherit;
-          font-size: clamp(1.6rem, 2vw, 2rem);
+
+          font-size:
+            clamp(
+              1.6rem,
+              2vw,
+              2rem
+            );
+
           font-weight: 700;
+
           color: #ffffff;
-          background: linear-gradient(135deg, var(--toyota-red) 0%, var(--toyota-red-dim) 100%);
+
+          background:
+            linear-gradient(
+              135deg,
+              var(--toyota-red) 0%,
+              var(--toyota-red-dim) 100%
+            );
+
           border: none;
+
           border-radius: 999px;
+
           cursor: pointer;
-          box-shadow: 0 10px 24px rgba(235, 10, 30, 0.35);
-          transition: transform 0.08s ease, box-shadow 0.15s ease;
+
+          box-shadow:
+            0 10px 24px
+            rgba(
+              235,
+              10,
+              30,
+              0.35
+            );
+
+          transition:
+            transform 0.08s ease,
+            box-shadow 0.15s ease;
         }
 
         .kiosk-start-button:hover {
-          box-shadow: 0 12px 30px rgba(235, 10, 30, 0.45);
+          box-shadow:
+            0 12px 30px
+            rgba(
+              235,
+              10,
+              30,
+              0.45
+            );
         }
 
         .kiosk-start-button:active {
@@ -1793,7 +2712,15 @@ const setIdle = () => {
         }
 
         .kiosk-start-button:focus-visible {
-          outline: 3px solid rgba(120, 170, 255, 0.7);
+          outline:
+            3px solid
+            rgba(
+              120,
+              170,
+              255,
+              0.7
+            );
+
           outline-offset: 3px;
         }
 
@@ -1802,6 +2729,7 @@ const setIdle = () => {
             opacity: 0;
             transform: translateY(10px);
           }
+
           to {
             opacity: 1;
             transform: translateY(0);
@@ -1812,6 +2740,7 @@ const setIdle = () => {
           from {
             opacity: 0;
           }
+
           to {
             opacity: 1;
           }
@@ -1828,17 +2757,31 @@ const setIdle = () => {
 
         @media (max-height: 560px) {
           .kiosk-message {
-            font-size: clamp(1.8rem, 4vw, 2.6rem);
+            font-size:
+              clamp(
+                1.8rem,
+                4vw,
+                2.6rem
+              );
           }
 
           .kiosk-key {
-            min-height: clamp(38px, 6vh, 50px);
+            min-height:
+              clamp(
+                38px,
+                6vh,
+                50px
+              );
           }
         }
       `}</style>
     </main>
   );
 }
+
+// ------------------------------------------------------------
+// Page
+// ------------------------------------------------------------
 
 export default function KioskPage() {
   return (

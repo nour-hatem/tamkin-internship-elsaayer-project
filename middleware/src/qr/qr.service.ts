@@ -34,6 +34,18 @@ export class QrService {
     gateId = 'gate-1',
     data?: Partial<QrTicketData>,
   ) {
+    // QR is only available when QR is the active approach.
+    const activeApproach = this.configService.get<string>(
+      'ACTIVE_APPROACH',
+      'voice',
+    );
+
+    if (activeApproach.toLowerCase() !== 'qr') {
+      throw new BadRequestException(
+        `QR check-in is unavailable because the active approach is ${activeApproach.toUpperCase()}.`,
+      );
+    }
+
     const token = this.qrTokenService.generate();
 
     const ticketData: QrTicketData = {
@@ -209,13 +221,16 @@ export class QrService {
      * Name and phone are prefilled from SAP.
      */
     if (payload.found && payload.profile) {
-      const ticket = await this.createTicket(payload.gateId, {
-        plate: payload.plate,
-        plateLocked: true,
-        name: payload.profile.name,
-        phone: payload.profile.phone,
-        source: 'SAP',
-      });
+      const ticket = await this.createTicket(
+        payload.gateId,
+        {
+          plate: payload.plate,
+          plateLocked: true,
+          name: payload.profile.name,
+          phone: payload.profile.phone,
+          source: 'SAP',
+        },
+      );
 
       this.logger.log(
         `[QrService] CASE C - SAP HIT → QR ticket created for ${payload.plate}`,
@@ -234,11 +249,14 @@ export class QrService {
      * - plate remains editable
      * - name and phone are entered by the driver
      */
-    const ticket = await this.createTicket(payload.gateId, {
-      plate: payload.plate,
-      plateLocked: false,
-      source: 'LPR',
-    });
+    const ticket = await this.createTicket(
+      payload.gateId,
+      {
+        plate: payload.plate,
+        plateLocked: false,
+        source: 'LPR',
+      },
+    );
 
     this.logger.log(
       `[QrService] CASE B - SAP MISS → QR ticket created for ${payload.plate}`,
@@ -275,6 +293,8 @@ export class QrService {
       return null;
     }
 
-    return new Date(Date.now() + ttl * 1000).toISOString();
+    return new Date(
+      Date.now() + ttl * 1000,
+    ).toISOString();
   }
 }

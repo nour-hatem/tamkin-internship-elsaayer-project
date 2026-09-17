@@ -5,25 +5,25 @@ import { SessionRepository } from './session.repository';
 import { SessionService } from './session.service';
 import { CheckInModule } from '../checkin/checkin.module';
 import { RedisModule } from '../common/redis/redis.module';
-import { AiModule, ElevenLabsSttAdapter, ElevenLabsTtsAdapter, NluRulesAdapter, StubTtsAdapter } from 'src/ai';
+import { AiModule, ElevenLabsSttAdapter, ElevenLabsTtsAdapter, LlmNluAdapter, NluRulesAdapter, StubTtsAdapter } from 'src/ai';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypedEventEmitter } from '@common/typed-event-emitter.service';
 import { StubGateAdapter } from 'src/gate/adapters/stub-gate.adapter';
 
 @Module({
-  imports: [CheckInModule, RedisModule,AiModule,ConfigModule],
+  imports: [CheckInModule, RedisModule,AiModule,ConfigModule,],
   providers: [KioskService, KioskGateway, SessionRepository, SessionService,{
       provide: 'ITtsAdapter', 
       useClass: ElevenLabsTtsAdapter,
-      //useClass:StubTtsAdapter
+     
     },{
 
       provide: 'ISttAdapter',
-      useExisting: 'STT_ADAPTER_TOKEN',
+      useClass:ElevenLabsSttAdapter
 
     },{
       provide:'INluAdapter',
-      useClass:NluRulesAdapter
+      useClass:LlmNluAdapter
     },{
       provide:'IGateAdapter',
       useClass:StubGateAdapter

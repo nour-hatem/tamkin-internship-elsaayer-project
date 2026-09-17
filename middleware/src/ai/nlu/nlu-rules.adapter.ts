@@ -10,7 +10,7 @@ const AFFIRMATIVE_EN = ['yes', 'yeah', 'yep'] as const;
 /** Egyptian Arabic affirmatives, written post-normalisation (see `normalize`). */
 const AFFIRMATIVE_AR = ['ايوه', 'نعم', 'تمام'] as const;
 const NEGATIVE_EN = ['no', 'nope'] as const;
-const NEGATIVE_AR = ['لا'] as const;
+const NEGATIVE_AR = ['لا' , 'له'] as const;
 
 const AFFIRMATIVES: ReadonlySet<string> = new Set<string>([...AFFIRMATIVE_EN, ...AFFIRMATIVE_AR]);
 const NEGATIVES: ReadonlySet<string> = new Set<string>([...NEGATIVE_EN, ...NEGATIVE_AR]);
@@ -77,14 +77,14 @@ function classify(raw: string): NluResultDto {
  * ambiguous → UNKNOWN. Guessing at a gate barrier is worse than re-prompting.
  */
 function matchYesNo(normalized: string): NluResultDto {
-  const tokens = tokenize(normalized);
+  const token = normalized;
 
   let sawAffirmative = false;
   let sawNegative = false;
-  for (const token of tokens) {
+  
     if (AFFIRMATIVES.has(token)) sawAffirmative = true;
     if (NEGATIVES.has(token)) sawNegative = true;
-  }
+  
 
   if (sawAffirmative && sawNegative) return UNKNOWN_RESULT;
   if (sawAffirmative) return { intent: 'YES', confidence: 0.98, entities: {} };

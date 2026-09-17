@@ -1,16 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { getHealth, HealthResponse, simulateLprRead } from '@/lib/api';
 import {
   joinGateRoom,
-  subscribeToCheckinDisplay,
   subscribeToSapResult,
   subscribeToGateState,
 } from '@/lib/socket';
-import { QRCodeSVG } from 'qrcode';
 
-const QR_LIFETIME = 180;
+const GATE_RESET_DELAY_MS = 3000; // how long the gate stays "open" before auto-resetting
 
 export default function ConsolePage() {
   const [plateNo, setPlateNo] = useState('ABC-1234');
@@ -19,13 +17,10 @@ export default function ConsolePage() {
 
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [lastSapResult, setLastSapResult] = useState<any>(null);
-  const [lastGateState, setLastGateState] = useState<any>(null);
+  const [lastGateState, setLastGateState] = useState<any>({ gateOpened: false });
   const [logs, setLogs] = useState<string[]>([]);
 
-  const [checkInUrl, setCheckInUrl] = useState('');
-  const [expiresAt, setExpiresAt] = useState('');
-  const [remainingSeconds, setRemainingSeconds] = useState(0);
-  const [qrMessage, setQrMessage] = useState('');
+  const gateResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addLog = (msg: string) => {
     setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
@@ -53,19 +48,42 @@ export default function ConsolePage() {
       setLastGateState(data);
 
       addLog(`Gate State: Opened=${data.gateOpened}, Ticket=${data.queueEntryId || 'N/A'}`);
+
+      // Clear any pending reset from a previous scan so overlapping
+      // events don't stack up or reset prematurely.
+      if (gateResetTimer.current) {
+        clearTimeout(gateResetTimer.current);
+        gateResetTimer.current = null;
+      }
+
+      if (data.gateOpened) {
+        gateResetTimer.current = setTimeout(() => {
+          setLastSapResult(null);
+          setLastGateState({ gateOpened: false });
+          addLog('Gate auto-closed, ready for next scan');
+          gateResetTimer.current = null;
+        }, GATE_RESET_DELAY_MS);
+      }
     });
 
     return () => {
       unsubSap();
       unsubGate();
+
+      if (gateResetTimer.current) {
+        clearTimeout(gateResetTimer.current);
+      }
     };
   }, []);
 
-  // Load the kiosk URL according to the active approach
+  // Map the active approach to the UI that should be opened for it
   const getUrlForApproach = (approach?: string) => {
     switch (approach?.toLowerCase()) {
       case 'voice':
         return `/kiosk?gateId=${encodeURIComponent(gateId)}`;
+
+      case 'qr':
+        return `/qr?gateId=${encodeURIComponent(gateId)}`;
 
       // Add more mappings here as other approaches are introduced
       default:
@@ -87,113 +105,21 @@ export default function ConsolePage() {
     addLog(`Opened ${url} for approach "${health?.config.activeApproach}"`);
   };
 
-  // Load the current QR display for the selected gate
-  useEffect(() => {
-    const loadDisplay = async () => {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-        const response = await fetch(`${apiUrl}/qr/display/${gateId}`);
-
-        if (!response.ok) {
-          throw new Error('Failed to load QR display.');
-        }
-
-        const display = await response.json();
-
-        if (display.checkInUrl) {
-          setCheckInUrl(display.checkInUrl);
-          setExpiresAt(display.expiresAt || '');
-
-          setRemainingSeconds(
-            display.expiresAt
-              ? Math.max(0, Math.ceil((new Date(display.expiresAt).getTime() - Date.now()) / 1000))
-              : 0,
-          );
-
-          setQrMessage('');
-        } else {
-          setCheckInUrl('');
-          setExpiresAt('');
-          setRemainingSeconds(0);
-          setQrMessage('');
-        }
-      } catch (error) {
-        console.error('[Console] Failed to load QR display:', error);
-      }
-    };
-
-    loadDisplay();
-
-    const unsubscribe = subscribeToCheckinDisplay(async (data) => {
-      if (data.gateId !== gateId) {
-        return;
-      }
-
-      addLog(`QR display updated for ${data.gateId}`);
-
-      await loadDisplay();
-    });
-
-    return unsubscribe;
-  }, [gateId]);
-
-  // Update QR countdown every second
-  useEffect(() => {
-    if (!expiresAt) {
+  // Open the QR check-in page, only valid when ACTIVE_APPROACH is "qr"
+  const handleOpenQr = () => {
+    if (health?.config.activeApproach?.toLowerCase() !== 'qr') {
+      addLog(`QR UI is not available for approach "${health?.config.activeApproach}"`);
       return;
     }
 
-    const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
+    const url = `/qr?gateId=${encodeURIComponent(gateId)}`;
 
-      setRemainingSeconds(remaining);
+    window.open(url, '_blank', 'noopener,noreferrer');
 
-      if (remaining === 0) {
-        clearInterval(interval);
-      }
-    }, 1000);
+    addLog(`Opened ${url} for approach "qr"`);
+  };
 
-    return () => clearInterval(interval);
-  }, [expiresAt]);
-
-  async function generateQr() {
-    setLoading(true);
-    setQrMessage('');
-
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-      const response = await fetch(`${apiUrl}/qr/ticket`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          gateId,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create QR ticket.');
-      }
-
-      const data = await response.json();
-
-      setCheckInUrl(data.checkInUrl);
-      setExpiresAt(data.expiresAt);
-      setRemainingSeconds(data.expiresIn);
-      setQrMessage('');
-
-      addLog(`Generated QR ticket for ${gateId}`);
-    } catch (error) {
-      setQrMessage(error instanceof Error ? error.message : 'Something went wrong.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Trigger LPR only after the Kiosk has been opened
+  // Trigger LPR only after the Kiosk/QR page has been opened
   const handleSimulate = async () => {
     if (!plateNo.trim()) {
       return;
@@ -212,15 +138,7 @@ export default function ConsolePage() {
     }
   };
 
-  const isExpired = checkInUrl !== '' && remainingSeconds === 0;
-
-  const minutes = Math.floor(remainingSeconds / 60);
-
-  const seconds = remainingSeconds % 60;
-
-  const formattedTime = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-  const progress = (remainingSeconds / QR_LIFETIME) * 100;
+  const isQrApproach = health?.config.activeApproach?.toLowerCase() === 'qr';
 
   return (
     <div
@@ -250,8 +168,9 @@ export default function ConsolePage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: '1fr',
           gap: '20px',
+          maxWidth: '520px',
         }}
       >
         {/* LPR / Gate Console */}
@@ -293,7 +212,7 @@ export default function ConsolePage() {
             <option value="gate-2">Gate 2</option>
           </select>
 
-          {/* Open Kiosk first */}
+          {/* Open Kiosk first (voice approach) */}
           <button
             onClick={handleOpenKiosk}
             style={{
@@ -310,7 +229,25 @@ export default function ConsolePage() {
             Open Kiosk
           </button>
 
-          {/* Trigger LPR second */}
+          {/* Open QR check-in (qr approach) */}
+          <button
+            onClick={handleOpenQr}
+            disabled={!isQrApproach}
+            style={{
+              width: '100%',
+              padding: '10px',
+              backgroundColor: isQrApproach ? '#111' : '#999',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              marginBottom: '10px',
+              cursor: isQrApproach ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Open QR
+          </button>
+
+          {/* Trigger LPR last */}
           <button
             onClick={handleSimulate}
             disabled={loading}
@@ -326,120 +263,6 @@ export default function ConsolePage() {
           >
             {loading ? 'Simulating...' : 'Simulate LPR Read'}
           </button>
-        </div>
-
-        {/* QR Console */}
-        <div
-          style={{
-            background: '#fff',
-            padding: '16px',
-            borderRadius: '8px',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-            textAlign: 'center',
-          }}
-        >
-          <h3>QR Check-in</h3>
-
-          {!checkInUrl && (
-            <>
-              <p style={{ color: '#666' }}>Generate a QR code for the customer.</p>
-
-              <button
-                onClick={generateQr}
-                disabled={loading}
-                style={{
-                  padding: '12px 24px',
-                  backgroundColor: '#111',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                }}
-              >
-                {loading ? 'Generating...' : 'Generate QR Code'}
-              </button>
-            </>
-          )}
-
-          {checkInUrl && !isExpired && (
-            <>
-              <div
-                style={{
-                  display: 'inline-flex',
-                  padding: '16px',
-                  background: '#fff',
-                  border: '1px solid #eee',
-                  borderRadius: '12px',
-                }}
-              >
-                <QRCodeSVG value={checkInUrl} size={220} level="H" />
-              </div>
-
-              <h4>Scan to Check In</h4>
-
-              <p>
-                QR expires in <strong>{formattedTime}</strong>
-              </p>
-
-              <div
-                style={{
-                  width: '100%',
-                  height: '8px',
-                  backgroundColor: '#e5e5e5',
-                  borderRadius: '10px',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    width: `${progress}%`,
-                    height: '100%',
-                    backgroundColor: remainingSeconds <= 30 ? '#c62828' : '#111',
-                  }}
-                />
-              </div>
-
-              <button
-                onClick={generateQr}
-                disabled={loading}
-                style={{
-                  marginTop: '15px',
-                  padding: '10px 20px',
-                  border: '1px solid #ddd',
-                  borderRadius: '8px',
-                  backgroundColor: '#fff',
-                  cursor: 'pointer',
-                }}
-              >
-                Generate New QR
-              </button>
-            </>
-          )}
-
-          {isExpired && (
-            <>
-              <h4>QR Code Expired</h4>
-
-              <p style={{ color: '#666' }}>Generate a new QR code to continue.</p>
-
-              <button
-                onClick={generateQr}
-                disabled={loading}
-                style={{
-                  padding: '12px 24px',
-                  backgroundColor: '#111',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                }}
-              >
-                Generate New QR
-              </button>
-            </>
-          )}
-
-          {qrMessage && <p style={{ color: '#c62828' }}>{qrMessage}</p>}
         </div>
       </div>
 
@@ -480,23 +303,19 @@ export default function ConsolePage() {
         <div style={{ marginTop: '10px' }}>
           <strong>Gate Status:</strong>
 
-          {lastGateState ? (
-            <div
-              style={{
-                background: lastGateState.gateOpened ? '#28a745' : '#dc3545',
-                color: '#fff',
-                padding: '10px',
-                marginTop: '4px',
-                textAlign: 'center',
-              }}
-            >
-              {lastGateState.gateOpened ? 'GATE OPENED' : 'GATE CLOSED'}
+          <div
+            style={{
+              background: lastGateState.gateOpened ? '#28a745' : '#dc3545',
+              color: '#fff',
+              padding: '10px',
+              marginTop: '4px',
+              textAlign: 'center',
+            }}
+          >
+            {lastGateState.gateOpened ? 'GATE OPENED' : 'GATE CLOSED'}
 
-              {lastGateState.queueEntryId && <div>Ticket: {lastGateState.queueEntryId}</div>}
-            </div>
-          ) : (
-            <div>No decision yet</div>
-          )}
+            {lastGateState.queueEntryId && <div>Ticket: {lastGateState.queueEntryId}</div>}
+          </div>
         </div>
       </div>
 
