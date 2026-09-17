@@ -11,4 +11,11 @@ export class StubGateAdapter implements IGateAdapter {
     this.logger.log(`========================================`);
     return true;
   }
+
+  async closeGate(gateId: string): Promise<boolean> {
+    this.logger.log(`========================================`);
+    this.logger.log(`[GATE CONTROLLER] GATE CLOSED for gateId: ${gateId}`);
+    this.logger.log(`========================================`);
+    return true;
+  }
 }
