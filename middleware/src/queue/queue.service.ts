@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ContactMethod } from '../ai';
 
 export interface QueueTicket {
   ticketId: string;
@@ -8,6 +9,7 @@ export interface QueueTicket {
   phone: string;
   source: 'QR' | 'VOICE';
   status: 'QUEUED' | 'IN_SERVICE' | 'COMPLETED';
+  contactMethod?: ContactMethod | null;
   createdAt: Date;
 }
 
@@ -23,6 +25,7 @@ export class QueueService {
     name: string,
     phone: string,
     source: 'QR' | 'VOICE',
+    contactMethod?: ContactMethod | null,
   ): Promise<QueueTicket> {
     this.ticketCounter += 1;
     const ticketId = `TICK-${this.ticketCounter}`;
@@ -34,6 +37,7 @@ export class QueueService {
       name,
       phone,
       source,
+      contactMethod: contactMethod ?? null,
       status: 'QUEUED',
       createdAt: new Date(),
     };

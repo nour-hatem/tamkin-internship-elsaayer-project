@@ -482,6 +482,7 @@ await this.checkinService.submit({
   name: session.customerName,
   phone: session.phone,
   source: 'VOICE',
+  contactMethod: session.contactMethod ?? null,
 })
 }
 
