@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { NluResultDto } from '../../common/dtos/nlu-result.dto';
 import { INluAdapter } from './nlu.port';
 import { normalizeNumberWords } from '../common/Phone-normalizing';
+import { ContactMethod, CONTACT_METHOD_OPTIONS } from './contact-method';
 
 /**
  * English affirmatives. Matched as whole tokens, never substrings.
@@ -10,7 +11,7 @@ import { normalizeNumberWords } from '../common/Phone-normalizing';
 const AFFIRMATIVE_EN = ['yes', 'yeah', 'yep'] as const;
 /** Egyptian Arabic affirmatives, written post-normalisation (see `normalize`). */
 const AFFIRMATIVE_AR = ['ايوه', 'نعم', 'تمام'] as const;
-const NEGATIVE_EN = ['no', 'nope', 'not', 'wrong'] as const;
+const NEGATIVE_EN = ['no', 'nope', 'wrong'] as const;
 const NEGATIVE_AR = ['لا', 'له', 'مش', 'غلط'] as const;
 
 /**
@@ -18,12 +19,12 @@ const NEGATIVE_AR = ['لا', 'له', 'مش', 'غلط'] as const;
  * When present in an utterance, intent cannot be unambiguously decided by rules alone.
  */
 const AMBIGUOUS_EN = [
-  'if', 'maybe', 'perhaps', 'doubt', 'know', 'sure', 'or', 'what',
+  'not', 'if', 'maybe', 'perhaps', 'doubt', 'know', 'sure', 'or', 'what',
   'why', 'how', 'who', 'where', 'when', 'which', 'did', 'would',
   'could', 'should', 'said', 'say',
 ] as const;
 const AMBIGUOUS_AR = [
-  'لو', 'يمكن', 'ممكن', 'شك', 'عارف', 'متاكد', 'ولا', 'او', 'ايه',
+  'لو', 'يمكن', 'ممكن', 'شك', 'عارف', 'فاهم', 'متاكد', 'ولا', 'او', 'ايه',
   'ليه', 'ازاي', 'مين', 'فين', 'امتى', 'هل', 'قال', 'بيقول', 'اقول',
 ] as const;
 
@@ -86,6 +87,11 @@ function classify(raw: string): NluResultDto {
   const phone = extractPhone(normalized);
   if (phone !== undefined) {
     return { intent: 'PHONE', confidence: 0.99, entities: { phone } };
+  }
+
+  const contactMethod = matchContactMethod(normalized);
+  if (contactMethod !== undefined) {
+    return { intent: 'CONTACT_METHOD', confidence: 0.97, entities: { contactMethod } };
   }
 
   return matchYesNo(normalized);
@@ -170,3 +176,125 @@ export function extractPhone(normalized: string): string | undefined {
 }
 
 const UNKNOWN_RESULT: NluResultDto = { intent: 'UNKNOWN', confidence: 0.0, entities: {} };
+
+// ─── Contact-method detection ─────────────────────────────────────────────────
+
+/**
+ * Egyptian-Arabic ordinals for positions 1–4, written post-normalisation.
+ * ة→ه and ى→ي have already fired, alef variants are folded.
+ */
+const AR_ORDINALS: ReadonlyMap<string, number> = new Map([
+  // 1st
+  ['الاول', 1], ['الاوله', 1], ['الاوليا', 1], ['اول', 1],
+  // 2nd
+  ['التاني', 2], ['التانيه', 2], ['تاني', 2], ['ثاني', 2], ['الثاني', 2],
+  // 3rd
+  ['التالت', 3], ['التالته', 3], ['تالت', 3], ['ثالث', 3], ['الثالث', 3],
+  // 4th
+  ['الرابع', 4], ['الرابعه', 4], ['رابع', 4],
+]);
+
+const EN_ORDINALS: ReadonlyMap<string, number> = new Map([
+  ['first', 1], ['second', 2], ['third', 3], ['fourth', 4],
+]);
+
+/**
+ * Explicit method-name triggers, post-normalisation.
+ * Reuses existing normalize() output: alef folded, teh-marbuta → ha, lowercase.
+ */
+const METHOD_NAMES: ReadonlyMap<string, ContactMethod> = new Map([
+  // SMS
+  ['sms', 'SMS'],
+  ['رساله نصيه', 'SMS'],
+  ['رساله', 'SMS'],
+  ['نصي', 'SMS'],
+  ['رسائل', 'SMS'],
+  // WHATSAPP
+  ['whatsapp', 'WHATSAPP'],
+  ['واتساب', 'WHATSAPP'],
+  ['واتس', 'WHATSAPP'],
+  ['واتسب', 'WHATSAPP'],
+  // ELSAAYER_APP
+  ['تطبيق', 'ELSAAYER_APP'],
+  ['التطبيق', 'ELSAAYER_APP'],
+  ['app', 'ELSAAYER_APP'],
+  ['elsaayer', 'ELSAAYER_APP'],
+  ['elsaayer app', 'ELSAAYER_APP'],
+  // CALLING_AGENT
+  ['مكالمه', 'CALLING_AGENT'],
+  ['اتصال', 'CALLING_AGENT'],
+  ['call', 'CALLING_AGENT'],
+  ['call me', 'CALLING_AGENT'],
+  ['calling', 'CALLING_AGENT'],
+]);
+
+/**
+ * Deterministic contact-method classifier.
+ *
+ * Checks:
+ *  1. Explicit method names (e.g. "واتساب", "whatsapp", "SMS", "رسالة نصية")
+ *  2. Bare single digit in range 1–N (e.g. "2", "٢")
+ *  3. Number with context (e.g. "رقم 2", "option 3", "الرقم التاني")
+ *  4. Egyptian-Arabic or English ordinals (e.g. "التانية", "the second one")
+ *
+ * Ambiguous inputs (e.g. multiple distinct options or out-of-range) return undefined
+ * so they fall through or route to the LLM.
+ *
+ * All numeric mapping is derived strictly from CONTACT_METHOD_OPTIONS without magic numbers.
+ */
+function matchContactMethod(normalized: string): ContactMethod | undefined {
+  const N = CONTACT_METHOD_OPTIONS.length;
+  const foundMethods = new Set<ContactMethod>();
+
+  // 1. Explicit method names (check full string and word-bounded occurrences)
+  for (const [phrase, method] of METHOD_NAMES) {
+    if (normalized === phrase) {
+      foundMethods.add(method);
+    } else {
+      const regex = new RegExp(`(^|\\s)${phrase}(\\s|$)`, 'u');
+      if (regex.test(normalized)) {
+        foundMethods.add(method);
+      }
+    }
+  }
+
+  // 2. Bare single digit (1–N)
+  if (/^\d$/.test(normalized)) {
+    const n = parseInt(normalized, 10);
+    if (n >= 1 && n <= N) {
+      foundMethods.add(CONTACT_METHOD_OPTIONS[n - 1]);
+    } else {
+      return undefined;
+    }
+  }
+
+  // 3. Number with context words (e.g. "رقم 2", "option 3", "اختار رقم 4")
+  const contextMatches = normalized.matchAll(/(?:رقم|الرقم|number|option|اختيار|اختار)\s*(\d)|(\d)\s*(?:رقم|الرقم)/g);
+  for (const match of contextMatches) {
+    const raw = match[1] ?? match[2];
+    const n = parseInt(raw, 10);
+    if (n >= 1 && n <= N) {
+      foundMethods.add(CONTACT_METHOD_OPTIONS[n - 1]);
+    }
+  }
+
+  // 4. Ordinals in tokens (Arabic or English)
+  const tokens = tokenize(normalized);
+  for (const token of tokens) {
+    const arPos = AR_ORDINALS.get(token);
+    if (arPos !== undefined && arPos >= 1 && arPos <= N) {
+      foundMethods.add(CONTACT_METHOD_OPTIONS[arPos - 1]);
+    }
+    const enPos = EN_ORDINALS.get(token);
+    if (enPos !== undefined && enPos >= 1 && enPos <= N) {
+      foundMethods.add(CONTACT_METHOD_OPTIONS[enPos - 1]);
+    }
+  }
+
+  // Unambiguous selection: exactly one distinct method matched
+  if (foundMethods.size === 1) {
+    return Array.from(foundMethods)[0];
+  }
+
+  return undefined;
+}
