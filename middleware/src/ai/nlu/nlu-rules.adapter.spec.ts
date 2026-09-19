@@ -3,10 +3,9 @@ import { NluResultDto } from '../../common/dtos/nlu-result.dto';
 import { installNetworkTripwire } from '../common/test-utils';
 
 /**
- * NluRulesAdapter — migrated from src/ai/nlu/nlu-rules.service.spec.ts.
- *
- * Implements INluAdapter.parse(text: string): Promise<NluResultDto>
- * Returns NluResultDto with { intent, confidence, entities }.
+ * NluRulesAdapter — spec covering Part A fixes:
+ *   Bug 1: semantic full-utterance intent detection (restored token loop, ambiguity routing)
+ *   Bug 2: phone extraction from corrected / word-form messy speech
  */
 describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () => {
   installNetworkTripwire();
@@ -26,13 +25,15 @@ describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () =>
     expect(typeof result.entities).toBe('object');
   }
 
+  // ─── YES/NO — affirmatives ────────────────────────────────────────────────
+
   describe('affirmatives -> YES', () => {
-    it.each(['yes', 'yeah', 'yep'])('English: %s', async (text) => {
+    it.each(['yes', 'yeah', 'yep'])('bare English: %s', async (text) => {
       const res = await adapter.parse(text);
       expect(res).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
     });
 
-    it.each(['أيوه', 'ايوه', 'نعم', 'تمام'])('Egyptian Arabic: %s', async (text) => {
+    it.each(['أيوه', 'ايوه', 'نعم', 'تمام'])('bare Egyptian Arabic: %s', async (text) => {
       const res = await adapter.parse(text);
       expect(res).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
     });
@@ -51,14 +52,41 @@ describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () =>
       expect(await adapter.parse('نَعَم')).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
     });
 
-    it('finds affirmative inside longer polite utterance', async () => {
+    // ── Full-sentence affirmations (Arabic and English) ──────────────────────
+    it('full English sentence affirming -> YES', async () => {
       expect(await adapter.parse('yes that is correct')).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
+      expect(await adapter.parse('yes please go ahead')).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
+    });
+
+    it('full Arabic sentence affirming -> YES', async () => {
       expect(await adapter.parse('ايوه يا فندم')).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
+      expect(await adapter.parse('ايوه يا فندم اللي انت قلته صح')).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
+      expect(await adapter.parse('تمام خلاص')).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
     });
   });
 
+  // ─── Sentences containing "yes" that are NOT affirmations ─────────────────
+
+  describe('sentences containing "yes" that are NOT affirmations -> UNKNOWN (routes to LLM)', () => {
+    it.each([
+      ['question with yes', 'did you say yes'],
+      ['reported speech with yes', 'he said yes'],
+      ['doubtful yes', 'maybe yes'],
+      ['conditional yes', 'لو ايوه'],
+      ['possible yes', 'ممكن ايوه'],
+      ['negated yes English', 'not yes'],
+      ['negated yes Arabic', 'مش ايوه'],
+      ['disjunctive yes or no', 'yes or no'],
+      ['embedded substring', 'yesterday'],
+    ])('%s: %s', async (_label, text) => {
+      expect(await adapter.parse(text)).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+  });
+
+  // ─── YES/NO — negatives ───────────────────────────────────────────────────
+
   describe('negatives -> NO', () => {
-    it.each(['no', 'nope'])('English: %s', async (text) => {
+    it.each(['no', 'nope'])('bare English: %s', async (text) => {
       const res = await adapter.parse(text);
       expect(res).toEqual({ intent: 'NO', confidence: 0.98, entities: {} });
     });
@@ -68,15 +96,42 @@ describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () =>
       expect(res).toEqual({ intent: 'NO', confidence: 0.98, entities: {} });
     });
 
-    it('matches whole tokens only, so "know" is not "no"', async () => {
+    // ── Full-sentence negations ──────────────────────────────────────────────
+    it('full English negation sentence -> NO', async () => {
+      expect(await adapter.parse('no that is wrong')).toEqual({ intent: 'NO', confidence: 0.98, entities: {} });
+      expect(await adapter.parse('nope try again')).toEqual({ intent: 'NO', confidence: 0.98, entities: {} });
+    });
+
+    it('full Arabic negation sentence -> NO', async () => {
+      expect(await adapter.parse('لا مش صح')).toEqual({ intent: 'NO', confidence: 0.98, entities: {} });
+      expect(await adapter.parse('لأ مش مظبوط')).toEqual({ intent: 'NO', confidence: 0.98, entities: {} });
+    });
+
+    it('matches whole tokens only — "know" is not "no"', async () => {
       expect(await adapter.parse('I do not know')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
       expect(await adapter.parse('nothing')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
     });
+  });
 
-    it('does not read "yes" out of "yesterday"', async () => {
-      expect(await adapter.parse('yesterday')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+  // ─── YES/NO — ambiguous → UNKNOWN (routed to LLM) ────────────────────────
+
+  describe('mixed / ambiguous utterances -> UNKNOWN (routes to LLM)', () => {
+    it('both yes and no present -> UNKNOWN', async () => {
+      expect(await adapter.parse('yes no')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+      expect(await adapter.parse('نعم لا')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+
+    it('contradictory Arabic phrase -> UNKNOWN', async () => {
+      expect(await adapter.parse('مش عارف اقول ايوه ولا لا')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+
+    it('unrecognised utterance -> UNKNOWN', async () => {
+      expect(await adapter.parse('where is the parking garage')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+      expect(await adapter.parse('فين مكان الانتظار')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
     });
   });
+
+  // ─── Phone extraction ─────────────────────────────────────────────────────
 
   describe('phone extraction -> PHONE with entities.phone', () => {
     it('accepts a clean 11-digit 01 number', async () => {
@@ -128,6 +183,47 @@ describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () =>
       });
     });
 
+    it('spoken Arabic digit words — clean sequence', async () => {
+      expect(await adapter.parse('صفر واحد صفر واحد اثنين ثلاثة أربعة خمسة ستة سبعة ثمانية')).toEqual({
+        intent: 'PHONE',
+        confidence: 0.99,
+        entities: { phone: '01012345678' },
+      });
+    });
+
+    it('spoken English digit words — clean sequence', async () => {
+      expect(await adapter.parse('zero one zero one two three four five six seven eight')).toEqual({
+        intent: 'PHONE',
+        confidence: 0.99,
+        entities: { phone: '01012345678' },
+      });
+    });
+
+    // ── Bug 2: Phone numbers spoken with corrections ─────────────────────────
+    it('corrected speech with digit literals — last valid number wins', async () => {
+      expect(await adapter.parse('01099999999 لا لا 01234567890')).toEqual({
+        intent: 'PHONE',
+        confidence: 0.99,
+        entities: { phone: '01234567890' },
+      });
+    });
+
+    it('corrected speech with Arabic word-form digits — last valid sequence wins', async () => {
+      expect(await adapter.parse('صفر واحد صفر تسعة تسعة تسعة تسعة تسعة تسعة تسعة تسعة لأ لأ صفر واحد اثنين ثلاثة أربعة خمسة ستة سبعة ثمانية تسعة صفر')).toEqual({
+        intent: 'PHONE',
+        confidence: 0.99,
+        entities: { phone: '01234567890' },
+      });
+    });
+
+    it('corrected speech mid-number prefix restart — extracts valid sequence', async () => {
+      expect(await adapter.parse('صفر واحد صفر لأ لأ صفر واحد اثنين ثلاثة أربعة خمسة ستة سبعة ثمانية تسعة صفر')).toEqual({
+        intent: 'PHONE',
+        confidence: 0.99,
+        entities: { phone: '01234567890' },
+      });
+    });
+
     it('REJECTS a 10-digit number', async () => {
       expect(await adapter.parse('0101234567')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
     });
@@ -143,19 +239,27 @@ describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () =>
     it('REJECTS 11 digits not starting 01', async () => {
       expect(await adapter.parse('02012345678')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
     });
+
+    // ── Completely garbled input ─────────────────────────────────────────────
+    it('completely garbled input -> UNKNOWN', async () => {
+      expect(await adapter.parse('ممممم هههه اااا')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+      expect(await adapter.parse('hmmm uh uh uh')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
   });
+
+  // ─── Empty and unrelated input ────────────────────────────────────────────
 
   describe('empty and unrelated input -> UNKNOWN', () => {
     it.each([
       ['empty string', ''],
       ['whitespace only', '   \n\t  '],
-      ['unrelated English', 'where is the parking garage'],
-      ['unrelated Arabic', 'فين مكان الانتظار'],
       ['punctuation only', '!!! ??? ...'],
     ])('%s', async (_label, text) => {
       expect(await adapter.parse(text)).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
     });
   });
+
+  // ─── Contract guarantees ──────────────────────────────────────────────────
 
   describe('contract guarantees', () => {
     const corpus = ['yes', 'no', 'ايوه', 'لا', '01012345678', '', 'random words'];
