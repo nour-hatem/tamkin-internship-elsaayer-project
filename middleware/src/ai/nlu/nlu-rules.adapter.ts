@@ -9,11 +9,26 @@ import { INluAdapter } from './nlu.port';
 const AFFIRMATIVE_EN = ['yes', 'yeah', 'yep'] as const;
 /** Egyptian Arabic affirmatives, written post-normalisation (see `normalize`). */
 const AFFIRMATIVE_AR = ['ايوه', 'نعم', 'تمام'] as const;
-const NEGATIVE_EN = ['no', 'nope'] as const;
-const NEGATIVE_AR = ['لا' , 'له'] as const;
+const NEGATIVE_EN = ['no', 'nope', 'not', 'wrong'] as const;
+const NEGATIVE_AR = ['لا', 'له', 'مش', 'غلط'] as const;
+
+/**
+ * Words indicating doubt, condition, questions, or indirect speech.
+ * When present in an utterance, intent cannot be unambiguously decided by rules alone.
+ */
+const AMBIGUOUS_EN = [
+  'if', 'maybe', 'perhaps', 'doubt', 'know', 'sure', 'or', 'what',
+  'why', 'how', 'who', 'where', 'when', 'which', 'did', 'would',
+  'could', 'should', 'said', 'say',
+] as const;
+const AMBIGUOUS_AR = [
+  'لو', 'يمكن', 'ممكن', 'شك', 'عارف', 'متاكد', 'ولا', 'او', 'ايه',
+  'ليه', 'ازاي', 'مين', 'فين', 'امتى', 'هل', 'قال', 'بيقول', 'اقول',
+] as const;
 
 const AFFIRMATIVES: ReadonlySet<string> = new Set<string>([...AFFIRMATIVE_EN, ...AFFIRMATIVE_AR]);
 const NEGATIVES: ReadonlySet<string> = new Set<string>([...NEGATIVE_EN, ...NEGATIVE_AR]);
+const AMBIGUOUS: ReadonlySet<string> = new Set<string>([...AMBIGUOUS_EN, ...AMBIGUOUS_AR]);
 
 /** A complete Egyptian mobile number: exactly 11 digits, leading `01`. */
 const EGYPTIAN_MOBILE = /^01\d{9}$/;
@@ -73,20 +88,28 @@ function classify(raw: string): NluResultDto {
 }
 
 /**
- * An utterance containing both an affirmative and a negative is genuinely
- * ambiguous → UNKNOWN. Guessing at a gate barrier is worse than re-prompting.
+ * Interprets the full utterance semantically by scanning every token.
+ *
+ * Rules:
+ *  - Clear affirmation only (no negatives, no ambiguous tokens) → YES
+ *  - Clear negation only (no affirmatives, no ambiguous tokens) → NO
+ *  - Mixed, contradictory, question, doubt, or unrecognised → UNKNOWN (routes to LLM)
  */
 function matchYesNo(normalized: string): NluResultDto {
-  const token = normalized;
+  const tokens = tokenize(normalized);
 
   let sawAffirmative = false;
   let sawNegative = false;
-  
+  let sawAmbiguous = false;
+
+  for (const token of tokens) {
     if (AFFIRMATIVES.has(token)) sawAffirmative = true;
     if (NEGATIVES.has(token)) sawNegative = true;
-  
+    if (AMBIGUOUS.has(token)) sawAmbiguous = true;
+  }
 
-  if (sawAffirmative && sawNegative) return UNKNOWN_RESULT;
+  // Ambiguous, contradictory, or unrecognised → route to LLM fallback.
+  if (sawAmbiguous || (sawAffirmative && sawNegative)) return UNKNOWN_RESULT;
   if (sawAffirmative) return { intent: 'YES', confidence: 0.98, entities: {} };
   if (sawNegative) return { intent: 'NO', confidence: 0.98, entities: {} };
   return UNKNOWN_RESULT;
