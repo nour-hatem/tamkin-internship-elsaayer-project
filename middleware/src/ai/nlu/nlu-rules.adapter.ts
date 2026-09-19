@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NluResultDto } from '../../common/dtos/nlu-result.dto';
 import { INluAdapter } from './nlu.port';
+import { normalizeNumberWords } from '../common/Phone-normalizing';
 
 /**
  * English affirmatives. Matched as whole tokens, never substrings.
@@ -76,7 +77,10 @@ export function classifySync(text: string): NluResultDto {
 function classify(raw: string): NluResultDto {
   if (typeof raw !== 'string') return UNKNOWN_RESULT;
 
-  const normalized = normalize(raw);
+  // Convert word-form digit names BEFORE letter normalisation so that the
+  // map keys match the original Arabic spelling (e.g. "أربعة" not "اربعه").
+  const wordConverted = normalizeNumberWords(raw);
+  const normalized = normalize(wordConverted);
   if (normalized.length === 0) return UNKNOWN_RESULT;
 
   const phone = extractPhone(normalized);
@@ -138,13 +142,31 @@ function tokenize(normalized: string): string[] {
 }
 
 /**
- * Strip every non-digit and accept the remainder only if it is exactly an
- * 11-digit 01… Egyptian mobile. Deliberately strict — a wrong number silently
- * accepted here becomes an SMS to a stranger.
+ * Extracts a valid Egyptian mobile number from a transcript that may contain
+ * mid-sentence corrections (e.g. "صفر واحد صفر لأ لأ صفر واحد اتنين …").
+ *
+ * Strategy:
+ *  1. Convert spoken word-form digit names to digit characters (safe if called directly).
+ *  2. Collapse whitespace and common phone formatting punctuation between digits.
+ *  3. Extract all continuous digit sequences.
+ *  4. Filter to runs that match exact 11-digit 01x Egyptian mobile numbers.
+ *  5. Return the LAST valid candidate (last correction spoken = intended number).
+ *
+ * Returns undefined when no valid 11-digit 01x number can be identified.
+ * Deliberately strict — a wrong number silently accepted here becomes an SMS
+ * to a stranger.
  */
 export function extractPhone(normalized: string): string | undefined {
-  const digits = normalized.replace(/\D/g, '');
-  return EGYPTIAN_MOBILE.test(digits) ? digits : undefined;
+  const withWords = normalizeNumberWords(normalized);
+  const collapsed = withWords.replace(/(?<=\d)[\s\-()./]+(?=\d)/g, '');
+  const digitRuns = collapsed.match(/\d+/g) ?? [];
+  const validCandidates = digitRuns.filter((run) => EGYPTIAN_MOBILE.test(run));
+
+  if (validCandidates.length > 0) {
+    return validCandidates[validCandidates.length - 1];
+  }
+
+  return undefined;
 }
 
 const UNKNOWN_RESULT: NluResultDto = { intent: 'UNKNOWN', confidence: 0.0, entities: {} };
