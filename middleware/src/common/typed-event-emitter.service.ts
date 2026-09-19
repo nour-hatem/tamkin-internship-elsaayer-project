@@ -12,6 +12,7 @@ export interface CheckinSubmittedPayload {
   name: string;
   phone: string;
   source: 'QR' | 'VOICE';
+  preferredContactMethod: CheckInRequestDto['preferredContactMethod'];
   queueEntryId: string;
 }
 
@@ -40,10 +41,7 @@ export interface EventPayloadMap {
 export class TypedEventEmitter {
   constructor(private readonly eventEmitter: EventEmitter2) {}
 
-  emit<K extends keyof EventPayloadMap & string>(
-    event: K,
-    payload: EventPayloadMap[K],
-  ): boolean {
+  emit<K extends keyof EventPayloadMap & string>(event: K, payload: EventPayloadMap[K]): boolean {
     return this.eventEmitter.emit(event, payload);
   }
 }
