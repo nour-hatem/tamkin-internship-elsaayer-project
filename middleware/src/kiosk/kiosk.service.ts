@@ -179,6 +179,7 @@ export class KioskService {
       // 2. Understand the customer's answer.
     const result = await this.nluAdapter.parse(
       transcript,
+      'confirming phone number',
     );
 
     this.logger.log(
@@ -294,6 +295,7 @@ if (payload.text) {
     // 2. Understand the customer's answer.
     const result = await this.nluAdapter.parse(
       transcript,
+      'providing phone number',
     );
 
     this.logger.log(

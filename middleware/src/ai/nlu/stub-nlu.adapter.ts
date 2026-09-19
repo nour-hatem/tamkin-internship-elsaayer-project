@@ -6,7 +6,7 @@ import { NluResultDto } from '../../common/dtos/nlu-result.dto';
 export class StubNluAdapter implements INluAdapter {
   private readonly logger = new Logger(StubNluAdapter.name);
 
-  async parse(text: string): Promise<NluResultDto> {
+  async parse(text: string, _context?: string): Promise<NluResultDto> {
     this.logger.log(`[Stub NLU] Parsing text: "${text}"`);
     return {
       intent: 'confirm_checkin',

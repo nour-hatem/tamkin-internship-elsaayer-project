@@ -62,7 +62,7 @@ const TEH_MARBUTA = /ة/g;
  */
 @Injectable()
 export class NluRulesAdapter implements INluAdapter {
-  async parse(text: string): Promise<NluResultDto> {
+  async parse(text: string, _context?: string): Promise<NluResultDto> {
     return classify(text);
   }
 }

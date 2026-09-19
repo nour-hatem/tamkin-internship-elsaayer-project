@@ -83,9 +83,9 @@ export class LlmNluAdapter implements INluAdapter {
     private readonly config: AiConfigService,
   ) {}
 
-  async parse(text: string): Promise<NluResultDto> {
+  async parse(text: string, context?: string): Promise<NluResultDto> {
     // Rules first, always. A clear utterance must never cost an LLM call.
-    const ruled = await this.rules.parse(text);
+    const ruled = await this.rules.parse(text, context);
     if (ruled.intent !== 'UNKNOWN') return ruled;
 
     if (!this.config.llmFallbackEnabled) {
