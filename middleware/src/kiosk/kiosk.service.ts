@@ -472,6 +472,10 @@ await this.checkinService.submit({
   name: session.customerName,
   phone: session.phone,
   source: 'VOICE',
+
+  // TEMP: Replace with Nour's normalized contact method
+  // when Voice → CheckIn integration is merged.
+  preferredContactMethod: 'SMS',
 })
 }
 
