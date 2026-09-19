@@ -11,6 +11,7 @@ import { KioskStateEnum } from './enum/VoiceStateEnum';
 import {inputModeEnum} from './enum/InputModeEnum'
 
 import {
+  ContactMethod,
   INluAdapter,
   ISttAdapter,
   ITtsAdapter,
@@ -88,6 +89,10 @@ export class KioskService {
       confirmationRetries: 0,
 
       phoneRetries: 0,
+
+      contactMethodRetries: 0,
+
+      contactMethod: null,
     });
 
 
@@ -137,6 +142,9 @@ export class KioskService {
         break;
       case KioskStateEnum.NAME_ASKING:
         await this.handleNameInput(session, payload);
+        break;  
+      case KioskStateEnum.CONTACT_METHOD_ASKING:
+        await this.handleContactMethodInput(session, payload);
         break;  
 
       default:
@@ -188,7 +196,7 @@ export class KioskService {
 
     // 3. Customer confirmed the phone number.
     if (result.intent === 'YES') {
-      await this.complete(session);
+      await this.askForContactMethod(session);
       return;
     }
 
@@ -420,12 +428,12 @@ if (payload.text) {
 
   private async complete(session: KioskSession) {
     this.logger.log(
-      `[KioskService] Customer confirmed phone for session ${session.sessionId}`,
+      `[KioskService] Customer selected contact method for session ${session.sessionId}`,
     );
 
     const transitionResult = await this.sessionService.transitionState(
       session.sessionId,
-      KioskStateEnum.CONFIRMING_PHONE,
+      KioskStateEnum.CONTACT_METHOD_ASKING,
       KioskStateEnum.CHECKING_IN,
     );
 
@@ -570,4 +578,108 @@ private async showPhoneKeyboard(session: KioskSession) {
     inputMode: inputModeEnum.TEXT,
   });
 }
+
+  private async askForContactMethod(session: KioskSession) {
+    const message =
+      'كيف تفضل أن نتواصل معك؟ رسالة نصية، واتساب، تطبيق الساير، أم اتصال؟';
+
+    const audio = await this.ttsAdapter.synthesize(message);
+
+    await this.sessionService.updateSession(session.sessionId, {
+      currentState: KioskStateEnum.CONTACT_METHOD_ASKING,
+    });
+
+    this.kioskGateway.sendOutput({
+      sessionId: session.sessionId,
+      gateId: session.gateId,
+      state: KioskStateEnum.CONTACT_METHOD_ASKING,
+      message,
+      audio,
+      inputMode: inputModeEnum.VOICE,
+    });
+  }
+
+  private async handleContactMethodInput(
+    session: KioskSession,
+    payload: KioskInputDto,
+  ) {
+    this.logger.log(
+      `[KioskService] Contact method input received for session ${session.sessionId}`,
+    );
+
+    let transcript: string;
+
+    if (payload.text) {
+      transcript = payload.text.trim();
+    } else if (payload.audio) {
+      transcript = await this.sttAdapter.transcribe(payload.audio);
+    } else {
+      this.logger.warn(
+        `[KioskService] No audio or text provided for contact method input`,
+      );
+      return;
+    }
+
+    this.logger.log(
+      `[KioskService] Contact method transcript: ${transcript}`,
+    );
+
+    const result = await this.nluAdapter.parse(
+      transcript,
+      'selecting contact method',
+    );
+
+    this.logger.log(
+      `[KioskService] NLU result: ${JSON.stringify(result)}`,
+    );
+
+    const contactMethod =
+      result.intent === 'CONTACT_METHOD' && result.entities?.contactMethod
+        ? (result.entities.contactMethod as ContactMethod)
+        : null;
+
+    if (contactMethod) {
+      const updatedSession = await this.sessionService.updateSession(
+        session.sessionId,
+        {
+          contactMethod,
+          contactMethodRetries: 0,
+        },
+      );
+
+      await this.complete(updatedSession);
+      return;
+    }
+
+    const retries = session.contactMethodRetries ?? 0;
+    if (retries === 0) {
+      await this.sessionService.updateSession(session.sessionId, {
+        contactMethodRetries: 1,
+      });
+
+      await this.askForContactMethod(session);
+      return;
+    }
+
+    await this.showContactMethodButtons(session);
+  }
+
+  private async showContactMethodButtons(session: KioskSession) {
+    const message = 'من فضلك اختر طريقة التواصل';
+
+    const audio = await this.ttsAdapter.synthesize(message);
+
+    await this.sessionService.updateSession(session.sessionId, {
+      currentState: KioskStateEnum.CONTACT_METHOD_ASKING,
+    });
+
+    this.kioskGateway.sendOutput({
+      sessionId: session.sessionId,
+      gateId: session.gateId,
+      state: KioskStateEnum.CONTACT_METHOD_ASKING,
+      message,
+      audio,
+      inputMode: inputModeEnum.BUTTONS,
+    });
+  }
 }
