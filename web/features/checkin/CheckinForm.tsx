@@ -2,6 +2,12 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 
+type ContactMethod =
+  | 'SMS'
+  | 'WHATSAPP'
+  | 'ELSAAYER_APP'
+  | 'CALLING_AGENT';
+
 type TicketData = {
   gateId: string;
   plate?: string;
@@ -23,6 +29,9 @@ export default function CheckinForm({
   const [plate, setPlate] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+
+  const [preferredContactMethod, setPreferredContactMethod] =
+    useState<ContactMethod | ''>('');
 
   const [plateLocked, setPlateLocked] = useState(false);
   const [source, setSource] =
@@ -59,11 +68,13 @@ export default function CheckinForm({
               );
             }
 
-            const display = await displayResponse.json();
+            const display =
+              await displayResponse.json();
 
             setPlate(display.plate ?? '');
             setName('');
             setPhone('');
+            setPreferredContactMethod('');
             setPlateLocked(false);
             setSource('GENERIC');
             setEditMode(false);
@@ -98,11 +109,13 @@ export default function CheckinForm({
           throw new Error(errorMessage);
         }
 
-        const ticket: TicketData = await response.json();
+        const ticket: TicketData =
+          await response.json();
 
         setPlate(ticket.plate ?? '');
         setName(ticket.name ?? '');
         setPhone(ticket.phone ?? '');
+        setPreferredContactMethod('');
         setPlateLocked(ticket.plateLocked);
         setSource(ticket.source);
         setEditMode(false);
@@ -128,11 +141,19 @@ export default function CheckinForm({
   ) {
     event.preventDefault();
 
+    if (!preferredContactMethod) {
+      setMessage(
+        'Please select how you would like to be contacted when your slot is available.',
+      );
+      return;
+    }
+
     setLoading(true);
     setMessage('');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+      const apiUrl =
+        process.env.NEXT_PUBLIC_BACKEND_URL;
 
       const endpoint = fallbackMode
         ? `${apiUrl}/checkin/submit`
@@ -145,12 +166,14 @@ export default function CheckinForm({
             name,
             phone,
             source: 'QR',
+            preferredContactMethod,
           }
         : {
             token,
             plate,
             name,
             phone,
+            preferredContactMethod,
           };
 
       const response = await fetch(endpoint, {
@@ -220,7 +243,7 @@ export default function CheckinForm({
             marginBottom: '20px',
           }}
         >
-          ✓
+          âœ“
         </div>
 
         <h2
@@ -305,8 +328,8 @@ export default function CheckinForm({
           }}
         >
           {source === 'SAP'
-            ? 'Vehicle recognized — information loaded from SAP.'
-            : 'Vehicle detected — please complete your information.'}
+            ? 'Vehicle recognized â€” information loaded from SAP.'
+            : 'Vehicle detected â€” please complete your information.'}
         </div>
       )}
 
@@ -328,7 +351,9 @@ export default function CheckinForm({
           id="plate"
           type="text"
           value={plate}
-          onChange={(event) => setPlate(event.target.value)}
+          onChange={(event) =>
+            setPlate(event.target.value)
+          }
           placeholder="Enter plate number"
           required
           readOnly={plateLocked}
@@ -376,7 +401,9 @@ export default function CheckinForm({
           id="name"
           type="text"
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) =>
+            setName(event.target.value)
+          }
           placeholder="Enter your name"
           required
           readOnly={isSapHit && !editMode}
@@ -388,12 +415,14 @@ export default function CheckinForm({
             borderRadius: '10px',
             fontSize: '15px',
             backgroundColor:
-              isSapHit && !editMode ? '#f3f3f3' : '#fff',
+              isSapHit && !editMode
+                ? '#f3f3f3'
+                : '#fff',
           }}
         />
       </div>
 
-      <div style={{ marginBottom: '22px' }}>
+      <div style={{ marginBottom: '18px' }}>
         <label
           htmlFor="phone"
           style={{
@@ -411,7 +440,9 @@ export default function CheckinForm({
           id="phone"
           type="tel"
           value={phone}
-          onChange={(event) => setPhone(event.target.value)}
+          onChange={(event) =>
+            setPhone(event.target.value)
+          }
           placeholder="Enter phone number"
           required
           readOnly={isSapHit && !editMode}
@@ -423,9 +454,66 @@ export default function CheckinForm({
             borderRadius: '10px',
             fontSize: '15px',
             backgroundColor:
-              isSapHit && !editMode ? '#f3f3f3' : '#fff',
+              isSapHit && !editMode
+                ? '#f3f3f3'
+                : '#fff',
           }}
         />
+      </div>
+
+      <div style={{ marginBottom: '22px' }}>
+        <label
+          htmlFor="preferredContactMethod"
+          style={{
+            display: 'block',
+            marginBottom: '7px',
+            fontSize: '14px',
+            fontWeight: '600',
+            color: '#333',
+          }}
+        >
+          Preferred Contact Method
+        </label>
+
+        <select
+          id="preferredContactMethod"
+          value={preferredContactMethod}
+          onChange={(event) =>
+            setPreferredContactMethod(
+              event.target.value as ContactMethod,
+            )
+          }
+          required
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            padding: '13px',
+            border: '1px solid #ddd',
+            borderRadius: '10px',
+            fontSize: '15px',
+            backgroundColor: '#fff',
+          }}
+        >
+          <option value="" disabled>
+            Select how you want to be contacted
+          </option>
+
+          <option value="SMS">
+            SMS
+          </option>
+
+          <option value="WHATSAPP">
+            WhatsApp
+          </option>
+
+          <option value="ELSAAYER_APP">
+            ElSaayer App
+          </option>
+
+          <option value="CALLING_AGENT">
+            Calling Agent
+          </option>
+        </select>
       </div>
 
       <div
@@ -452,7 +540,9 @@ export default function CheckinForm({
             opacity: loading ? 0.7 : 1,
           }}
         >
-          {loading ? 'Checking in...' : 'Check In'}
+          {loading
+            ? 'Checking in...'
+            : 'Check In'}
         </button>
 
         {isSapHit && !editMode && (

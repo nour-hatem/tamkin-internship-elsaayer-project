@@ -34,7 +34,6 @@ export class QrService {
     gateId = 'gate-1',
     data?: Partial<QrTicketData>,
   ) {
-    // QR is only available when QR is the active approach.
     const activeApproach = this.configService.get<string>(
       'ACTIVE_APPROACH',
       'voice',
@@ -57,13 +56,9 @@ export class QrService {
       phone: data?.phone,
     };
 
-    // Store the ticket itself with its TTL.
     await this.qrTicketRepository.create(token, ticketData);
-
-    // Make this ticket the current ticket displayed for the gate.
     await this.qrTicketRepository.setCurrentTicket(gateId, token);
 
-    // Keep the latest plate available while the ticket is active.
     if (data?.plate) {
       await this.qrTicketRepository.setPlateHint(
         gateId,
@@ -71,7 +66,6 @@ export class QrService {
       );
     }
 
-    // Notify the kiosk console that the displayed QR has changed.
     this.logger.log(
       `[QrService] Emitting ${EVENTS.CHECKIN_DISPLAY_UPDATED} for gate ${gateId}`,
     );
@@ -118,8 +112,6 @@ export class QrService {
   }
 
   async checkIn(dto: QrCheckinDto) {
-    // Validate the plate and consume the ticket atomically.
-    // A wrong plate must NOT burn the QR ticket.
     const consumeResult =
       await this.qrTicketRepository.consumeValidated(
         dto.token,
@@ -151,14 +143,14 @@ export class QrService {
       name: dto.name,
       phone: dto.phone,
       source: 'QR',
+      preferredContactMethod:
+      dto.preferredContactMethod,
     });
 
     if (!result.success) {
       throw new ConflictException(result);
     }
 
-    // The QR has been successfully consumed.
-    // Clear it from the gate's current display.
     await this.qrTicketRepository.clearCurrentTicket(
       ticket.gateId,
     );
@@ -167,7 +159,6 @@ export class QrService {
       ticket.gateId,
     );
 
-    // Notify the kiosk console that there is no active QR anymore.
     this.eventEmitter.emit(
       EVENTS.CHECKIN_DISPLAY_UPDATED,
       {
@@ -212,14 +203,6 @@ export class QrService {
       return;
     }
 
-    /*
-     * CASE C
-     * LPR + SAP HIT
-     *
-     * Plate is known and trusted from SAP.
-     * Therefore the plate is locked on the mobile form.
-     * Name and phone are prefilled from SAP.
-     */
     if (payload.found && payload.profile) {
       const ticket = await this.createTicket(
         payload.gateId,
@@ -239,16 +222,6 @@ export class QrService {
       return ticket;
     }
 
-    /*
-     * CASE B
-     * LPR + SAP MISS
-     *
-     * We know the plate from LPR, but SAP does not know it.
-     * Therefore:
-     * - plate is prefilled
-     * - plate remains editable
-     * - name and phone are entered by the driver
-     */
     const ticket = await this.createTicket(
       payload.gateId,
       {
@@ -273,21 +246,28 @@ export class QrService {
     return this.qrTicketRepository.getPlateHint(gateId);
   }
 
-  getPublicCheckInUrl(gateId: string, token: string): string {
+  getPublicCheckInUrl(
+    gateId: string,
+    token: string,
+  ): string {
     const appUrl =
       this.configService.getOrThrow<string>('APP_URL');
 
     return `${appUrl}/checkin?gate=${gateId}&t=${token}`;
   }
 
-  async getTicketExpiresAt(token: string): Promise<string | null> {
-    const ticket = await this.qrTicketRepository.get(token);
+  async getTicketExpiresAt(
+    token: string,
+  ): Promise<string | null> {
+    const ticket =
+      await this.qrTicketRepository.get(token);
 
     if (!ticket) {
       return null;
     }
 
-    const ttl = await this.qrTicketRepository.getTtl(token);
+    const ttl =
+      await this.qrTicketRepository.getTtl(token);
 
     if (ttl <= 0) {
       return null;
