@@ -247,6 +247,109 @@ describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () =>
     });
   });
 
+  // ─── Contact-method parsing ────────────────────────────────────────────────
+
+  describe('contact-method parsing -> CONTACT_METHOD with entities.contactMethod', () => {
+    function cm(contactMethod: string): NluResultDto {
+      return { intent: 'CONTACT_METHOD', confidence: 0.97, entities: { contactMethod } };
+    }
+
+    // ── Via bare number ──────────────────────────────────────────────────────
+    it('bare digit 1 -> SMS', async () => {
+      expect(await adapter.parse('1')).toEqual(cm('SMS'));
+    });
+    it('bare digit 2 -> WHATSAPP', async () => {
+      expect(await adapter.parse('2')).toEqual(cm('WHATSAPP'));
+    });
+    it('bare digit 3 -> ELSAAYER_APP', async () => {
+      expect(await adapter.parse('3')).toEqual(cm('ELSAAYER_APP'));
+    });
+    it('bare digit 4 -> CALLING_AGENT', async () => {
+      expect(await adapter.parse('4')).toEqual(cm('CALLING_AGENT'));
+    });
+
+    it('Arabic-Indic digit ٢ -> WHATSAPP', async () => {
+      expect(await adapter.parse('٢')).toEqual(cm('WHATSAPP'));
+    });
+
+    // ── Via number with context ──────────────────────────────────────────────
+    it('"رقم 2" -> WHATSAPP', async () => {
+      expect(await adapter.parse('رقم 2')).toEqual(cm('WHATSAPP'));
+    });
+    it('"option 3" -> ELSAAYER_APP', async () => {
+      expect(await adapter.parse('option 3')).toEqual(cm('ELSAAYER_APP'));
+    });
+    it('"اختار رقم 4" -> CALLING_AGENT', async () => {
+      expect(await adapter.parse('اختار رقم 4')).toEqual(cm('CALLING_AGENT'));
+    });
+    it('"الرقم التاني" -> WHATSAPP', async () => {
+      expect(await adapter.parse('الرقم التاني')).toEqual(cm('WHATSAPP'));
+    });
+
+    // ── Via ordinal ──────────────────────────────────────────────────────────
+    it('"التانية" -> WHATSAPP', async () => {
+      expect(await adapter.parse('التانية')).toEqual(cm('WHATSAPP'));
+    });
+    it('"تاني واحدة" -> WHATSAPP', async () => {
+      expect(await adapter.parse('تاني واحدة')).toEqual(cm('WHATSAPP'));
+    });
+    it('"the second one" -> WHATSAPP', async () => {
+      expect(await adapter.parse('the second one')).toEqual(cm('WHATSAPP'));
+    });
+    it('"التالتة" -> ELSAAYER_APP', async () => {
+      expect(await adapter.parse('التالتة')).toEqual(cm('ELSAAYER_APP'));
+    });
+    it('"the third one" -> ELSAAYER_APP', async () => {
+      expect(await adapter.parse('the third one')).toEqual(cm('ELSAAYER_APP'));
+    });
+    it('"الرابعة" -> CALLING_AGENT', async () => {
+      expect(await adapter.parse('الرابعة')).toEqual(cm('CALLING_AGENT'));
+    });
+    it('"the fourth one" -> CALLING_AGENT', async () => {
+      expect(await adapter.parse('the fourth one')).toEqual(cm('CALLING_AGENT'));
+    });
+
+    // ── Via method name ──────────────────────────────────────────────────────
+    it('"SMS" -> SMS', async () => {
+      expect(await adapter.parse('SMS')).toEqual(cm('SMS'));
+    });
+    it('"رسالة نصية" -> SMS', async () => {
+      expect(await adapter.parse('رسالة نصية')).toEqual(cm('SMS'));
+    });
+    it('"واتساب" -> WHATSAPP', async () => {
+      expect(await adapter.parse('واتساب')).toEqual(cm('WHATSAPP'));
+    });
+    it('"WhatsApp" -> WHATSAPP', async () => {
+      expect(await adapter.parse('WhatsApp')).toEqual(cm('WHATSAPP'));
+    });
+    it('"مكالمة" -> CALLING_AGENT', async () => {
+      expect(await adapter.parse('مكالمة')).toEqual(cm('CALLING_AGENT'));
+    });
+    it('"call me" -> CALLING_AGENT', async () => {
+      expect(await adapter.parse('call me')).toEqual(cm('CALLING_AGENT'));
+    });
+    it('"التطبيق" -> ELSAAYER_APP', async () => {
+      expect(await adapter.parse('التطبيق')).toEqual(cm('ELSAAYER_APP'));
+    });
+
+    // ── Out-of-range, ambiguous, and invalid inputs -> UNKNOWN ───────────────
+    it('digit 0 -> UNKNOWN (out of range)', async () => {
+      expect(await adapter.parse('0')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+    it('digit 5 -> UNKNOWN (out of range)', async () => {
+      expect(await adapter.parse('5')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+    it('conflicting/ambiguous methods "واتساب او sms" -> UNKNOWN (routes to LLM)', async () => {
+      expect(await adapter.parse('واتساب او sms')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+    it('unrelated input -> UNKNOWN', async () => {
+      expect(await adapter.parse('أنا مش فاهم')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+    it('empty input -> UNKNOWN', async () => {
+      expect(await adapter.parse('')).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+  });
+
   // ─── Empty and unrelated input ────────────────────────────────────────────
 
   describe('empty and unrelated input -> UNKNOWN', () => {
@@ -262,7 +365,7 @@ describe('NluRulesAdapter (Phase 2: deterministic rules -> NluResultDto)', () =>
   // ─── Contract guarantees ──────────────────────────────────────────────────
 
   describe('contract guarantees', () => {
-    const corpus = ['yes', 'no', 'ايوه', 'لا', '01012345678', '', 'random words'];
+    const corpus = ['yes', 'no', 'ايوه', 'لا', '01012345678', '', 'random words', '2', 'واتساب'];
 
     it('every input yields valid NluResultDto', async () => {
       for (const text of corpus) {
