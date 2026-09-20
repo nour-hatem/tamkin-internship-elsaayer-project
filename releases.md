@@ -1,5 +1,57 @@
 # Releases
 
+## [2026-09-20 01:27] fix(kiosk): add temporary contact method fallback
+
+**By:** @RahmaMohamedFarouk06
+
+**Requested:** fix(kiosk): add temporary contact method fallback (post-commit auto-log, branch `feature/rahma-qr-socket`, `deafe85`)
+
+**Changes:**
+- middleware/src/kiosk/kiosk.service.ts
+
+**Notes:** auto-logged by post-commit hook; amend or extend as needed.
+
+## [2026-09-20 01:25] feat(qr): add preferred contact method
+
+**By:** @RahmaMohamedFarouk06
+
+**Requested:** feat(qr): add preferred contact method (post-commit auto-log, branch `feature/rahma-qr-socket`, `30591d8`)
+
+**Changes:**
+- middleware/src/qr/dto/qr-checkin.dto.ts
+- middleware/src/qr/qr.service.ts
+- web/features/checkin/CheckinForm.tsx
+
+**Notes:** auto-logged by post-commit hook; amend or extend as needed.
+
+## [2026-09-20 01:24] feat(queue): add queue rotation and slot simulation
+
+**By:** @RahmaMohamedFarouk06
+
+**Requested:** feat(queue): add queue rotation and slot simulation (post-commit auto-log, branch `feature/rahma-qr-socket`, `f4a28ed`)
+
+**Changes:**
+- middleware/src/checkin/checkin.service.ts
+- middleware/src/common/dtos/checkin-request.dto.ts
+- middleware/src/common/events.ts
+- middleware/src/common/typed-event-emitter.service.ts
+- middleware/src/queue/queue.controller.ts
+- middleware/src/queue/queue.module.ts
+- middleware/src/queue/queue.service.ts
+
+**Notes:** auto-logged by post-commit hook; amend or extend as needed.
+
+## [2026-09-17 22:24] fix(ai): use stable NLU adapter token
+
+**By:** @RahmaMohamedFarouk06
+
+**Requested:** fix(ai): use stable NLU adapter token (post-commit auto-log, branch `feature/rahma-qr-socket`, `fb2e9aa`)
+
+**Changes:**
+- middleware/src/ai/nlu/nlu.port.ts
+
+**Notes:** auto-logged by post-commit hook; amend or extend as needed.
+
 ## [2026-09-13 17:30] Configure Unified Redis TTL Policy for Kiosk Sessions
 
 **By:** @cline

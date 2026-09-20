@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { QueueService } from '../queue/queue.service';
 import { GateService } from '../gate/gate.service';
 import { TypedEventEmitter } from '../common/typed-event-emitter.service';
@@ -28,8 +25,7 @@ export class CheckInService {
     );
 
     // 1. Duplicate check
-    const existingTicket =
-      await this.queueService.getActiveTicketForPlate(request.plate);
+    const existingTicket = await this.queueService.getActiveTicketForPlate(request.plate);
 
     if (existingTicket) {
       const result: CheckInResultDto = {
@@ -51,7 +47,7 @@ export class CheckInService {
       request.name,
       request.phone,
       request.source,
-      request.contactMethod,
+      request.preferredContactMethod,
     );
 
     // Notify listeners that the check-in was submitted.
@@ -61,7 +57,7 @@ export class CheckInService {
       name: request.name,
       phone: request.phone,
       source: request.source,
-      contactMethod: request.contactMethod,
+      preferredContactMethod: request.preferredContactMethod,
       queueEntryId: ticket.ticketId,
     });
 
@@ -70,13 +66,7 @@ export class CheckInService {
 
     const lockAcquired = await this.redisService
       .getClient()
-      .set(
-        gateLockKey,
-        '1',
-        'EX',
-        this.gateOpenRateLimitSeconds,
-        'NX',
-      );
+      .set(gateLockKey, '1', 'EX', this.gateOpenRateLimitSeconds, 'NX');
 
     let gateOpened = false;
 
@@ -97,9 +87,7 @@ export class CheckInService {
         : 'Check-in recorded and queued. Gate is currently rate-limited.',
     };
 
-    this.logger.log(
-      `Check-in complete: Ticket ${ticket.ticketId}, Gate Opened: ${gateOpened}`,
-    );
+    this.logger.log(`Check-in complete: Ticket ${ticket.ticketId}, Gate Opened: ${gateOpened}`);
 
     this.eventEmitter.emit(EVENTS.CHECKIN_COMPLETED, result);
 

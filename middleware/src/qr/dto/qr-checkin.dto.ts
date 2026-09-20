@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsString, IsUUID } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsString, IsUUID } from 'class-validator';
+import { ContactMethod } from '../../ai';
 
 export class QrCheckinDto {
   @IsUUID()
@@ -16,4 +17,7 @@ export class QrCheckinDto {
   @IsString()
   @IsNotEmpty()
   phone: string;
+
+  @IsEnum(['SMS', 'WHATSAPP', 'ELSAAYER_APP', 'CALLING_AGENT'])
+  preferredContactMethod: ContactMethod;
 }

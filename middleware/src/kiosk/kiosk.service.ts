@@ -8,21 +8,15 @@ import { SapLookupResultDto } from '../common/dtos/sap-lookup-result.dto';
 import { SessionService } from './session.service';
 import { KioskGateway } from './kiosk.gateway';
 import { KioskStateEnum } from './enum/VoiceStateEnum';
-import {inputModeEnum} from './enum/InputModeEnum'
+import { inputModeEnum } from './enum/InputModeEnum';
 
-import {
-  ContactMethod,
-  INluAdapter,
-  ISttAdapter,
-  ITtsAdapter,
-} from 'src/ai';
+import { ContactMethod, INluAdapter, ISttAdapter, ITtsAdapter } from 'src/ai';
 
 import { KioskSession } from './interfaces/kiosk-session.interface';
 import { KioskInputDto } from './interfaces/KioskInputDto';
 import { ISapAdapter } from 'src/sap/ports/sap.port';
 import { IGateAdapter } from 'src/gate/ports/gate.port';
 import { CheckInService } from 'src/checkin/checkin.service';
-
 
 @Injectable()
 export class KioskService {
@@ -31,7 +25,7 @@ export class KioskService {
   constructor(
     private readonly configService: ConfigService,
     private readonly sessionService: SessionService,
-    private readonly checkinService:CheckInService,
+    private readonly checkinService: CheckInService,
     @Inject(forwardRef(() => KioskGateway))
     private readonly kioskGateway: KioskGateway,
     @Inject('ITtsAdapter')
@@ -41,31 +35,26 @@ export class KioskService {
     @Inject('INluAdapter')
     private readonly nluAdapter: INluAdapter,
     @Inject('IGateAdapter')
-  private readonly gateAdapter: IGateAdapter,
-  private readonly eventEmitter: EventEmitter2,
-      ) {}
+    private readonly gateAdapter: IGateAdapter,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   /**
    * Starts the kiosk flow after SAP finishes looking up the plate.
    */
   @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
   async handleSapLookupResult(payload: SapLookupResultDto) {
-    const activeApproach = this.configService.get<string>(
-      'ACTIVE_APPROACH',
-      'voice',
-    );
+    const activeApproach = this.configService.get<string>('ACTIVE_APPROACH', 'voice');
 
     if (activeApproach.toLowerCase() !== 'voice') {
       this.logger.debug(
         `[KioskService] Ignoring SAP result for ${payload.plate} - ` +
-        `active approach is '${activeApproach}'`,
+          `active approach is '${activeApproach}'`,
       );
       return;
     }
 
-    this.logger.log(
-      `[KioskService] Processing Voice kiosk flow for plate: ${payload.plate}`,
-    );
+    this.logger.log(`[KioskService] Processing Voice kiosk flow for plate: ${payload.plate}`);
 
     const socketId = this.kioskGateway.getKioskSocketIdForGate(payload.gateId);
 
@@ -74,17 +63,11 @@ export class KioskService {
       plateNo: payload.plate,
       socketId,
 
-      customerName: payload.found
-        ? payload.profile?.name ?? null
-        : null,
+      customerName: payload.found ? (payload.profile?.name ?? null) : null,
 
-      phone: payload.found
-        ? payload.profile?.phone ?? null
-        : null,
+      phone: payload.found ? (payload.profile?.phone ?? null) : null,
 
-      currentState: payload.found
-        ? KioskStateEnum.GREETING
-        : KioskStateEnum.NAME_ASKING,
+      currentState: payload.found ? KioskStateEnum.GREETING : KioskStateEnum.NAME_ASKING,
 
       confirmationRetries: 0,
 
@@ -95,15 +78,12 @@ export class KioskService {
       contactMethod: null,
     });
 
-
-    this.logger.log(
-      `[KioskService] Session created: ${session.sessionId}`,
-    );
+    this.logger.log(`[KioskService] Session created: ${session.sessionId}`);
 
     if (payload.found) {
       await this.greeting(session);
-    }else{
-      await this.askForName(session)
+    } else {
+      await this.askForName(session);
     }
   }
 
@@ -115,21 +95,17 @@ export class KioskService {
    */
   @OnEvent(EVENTS.KIOSK_INPUT)
   async handleInput(payload: KioskInputDto) {
-    const session = await this.sessionService.getSession(
-      payload.sessionId,
-    );
+    const session = await this.sessionService.getSession(payload.sessionId);
 
     if (!session) {
-      this.logger.warn(
-        `[KioskService] Session not found: ${payload.sessionId}`,
-      );
+      this.logger.warn(`[KioskService] Session not found: ${payload.sessionId}`);
       return;
     }
 
     this.logger.log(
       `[KioskService] INPUT received - ` +
-      `session=${session.sessionId}, ` +
-      `state=${session.currentState}`,
+        `session=${session.sessionId}, ` +
+        `state=${session.currentState}`,
     );
 
     switch (session.currentState) {
@@ -140,17 +116,18 @@ export class KioskService {
       case KioskStateEnum.PHONE_ASKING:
         await this.handlePhoneInput(session, payload);
         break;
+
       case KioskStateEnum.NAME_ASKING:
         await this.handleNameInput(session, payload);
-        break;  
+        break;
+
       case KioskStateEnum.CONTACT_METHOD_ASKING:
         await this.handleContactMethodInput(session, payload);
-        break;  
+        break;
 
       default:
         this.logger.warn(
-          `[KioskService] INPUT received in unsupported state: ` +
-          `${session.currentState}`,
+          `[KioskService] INPUT received in unsupported state: ` + `${session.currentState}`,
         );
     }
   }
@@ -159,209 +136,129 @@ export class KioskService {
    * Handles the customer's YES / NO answer
    * during phone-number confirmation.
    */
- 
-    // 1. Convert customer's audio to text.
-    private async handlePhoneConfirmation(
-  session: KioskSession,
-  payload: KioskInputDto,
-) {
-  let transcript: string;
+  private async handlePhoneConfirmation(session: KioskSession, payload: KioskInputDto) {
+    let transcript: string;
 
-  if (payload.text) {
-    transcript = payload.text.trim();
-  } else if (payload.audio) {
-    transcript = await this.sttAdapter.transcribe(
-      payload.audio,
-    );
-  } else {
-    this.logger.warn(
-      `[KioskService] No audio or text provided for phone confirmation`,
-    );
-    return;
-  }
+    if (payload.text) {
+      transcript = payload.text.trim();
+    } else if (payload.audio) {
+      transcript = await this.sttAdapter.transcribe(payload.audio);
+    } else {
+      this.logger.warn(`[KioskService] No audio or text provided for phone confirmation`);
+      return;
+    }
 
-  this.logger.log(
-    `[KioskService] Confirmation input: ${transcript}`,
-  );
+    this.logger.log(`[KioskService] Confirmation input: ${transcript}`);
 
-      // 2. Understand the customer's answer.
-    const result = await this.nluAdapter.parse(
-      transcript,
-      'confirming phone number',
-    );
+    const result = await this.nluAdapter.parse(transcript, 'confirming phone number');
 
-    this.logger.log(
-      `[KioskService] NLU result: ${JSON.stringify(result)}`,
-    );
+    this.logger.log(`[KioskService] NLU result: ${JSON.stringify(result)}`);
 
-    // 3. Customer confirmed the phone number.
     if (result.intent === 'YES') {
       await this.askForContactMethod(session);
       return;
     }
 
-    // 4. Customer rejected the phone number.
- if (result.intent === 'NO') {
-  await this.sessionService.updateSession(
-    session.sessionId,
-    {
-      confirmationRetries: 0,
-    },
-  );
+    if (result.intent === 'NO') {
+      await this.sessionService.updateSession(session.sessionId, {
+        confirmationRetries: 0,
+      });
 
-  await this.askForPhone(session);
-  return;
-}
+      await this.askForPhone(session);
+      return;
+    }
 
-
-    // 5. Unknown answer.
     if (result.intent === 'UNKNOWN') {
-  if (session.confirmationRetries === 0) {
-    await this.sessionService.updateSession(
-      session.sessionId,
-      {
-        confirmationRetries: 1,
-      },
-    );
+      if (session.confirmationRetries === 0) {
+        await this.sessionService.updateSession(session.sessionId, {
+          confirmationRetries: 1,
+        });
 
-    await this.greeting(session);
-    return;
+        await this.greeting(session);
+        return;
+      }
+
+      await this.showConfirmationButtons(session);
+      return;
+    }
   }
 
-  await this.showConfirmationButtons(session);
-  return;
-}
+  private async handleNameInput(session: KioskSession, payload: KioskInputDto) {
+    this.logger.log(`[KioskService] Name input received for session ${session.sessionId}`);
 
-    // Retry behavior will be implemented later.
-  }
+    const name = payload.text?.trim();
 
-private async handleNameInput(
-  session: KioskSession,
-  payload: KioskInputDto,
-) {
-  this.logger.log(
-    `[KioskService] Name input received for session ${session.sessionId}`,
-  );
+    if (!name) {
+      this.logger.warn(`[KioskService] Customer name was not provided`);
+      return;
+    }
 
-  const name = payload.text?.trim();
+    this.logger.log(`[KioskService] Customer name received: ${name}`);
 
-  if (!name) {
-    this.logger.warn(
-      `[KioskService] Customer name was not provided`,
-    );
-    return;
-  }
-
-  this.logger.log(
-    `[KioskService] Customer name received: ${name}`,
-  );
-
-  const updatedSession = await this.sessionService.updateSession(
-    session.sessionId,
-    {
+    const updatedSession = await this.sessionService.updateSession(session.sessionId, {
       customerName: name,
-    },
-  );
+    });
 
-  await this.askForPhone(updatedSession);
-}
+    await this.askForPhone(updatedSession);
+  }
 
   /**
    * Handles audio received after the backend asked
    * the customer for their phone number.
-   *
-   * We will implement this in the next step.
    */
-  private async handlePhoneInput(
-    session: KioskSession,
-    payload: KioskInputDto,
-  ) {
-    this.logger.log(
-      `[KioskService] Phone input received for session ${session.sessionId}`,
-    );
+  private async handlePhoneInput(session: KioskSession, payload: KioskInputDto) {
+    this.logger.log(`[KioskService] Phone input received for session ${session.sessionId}`);
 
-    // 1. Convert customer's audio to text.
     let transcript: string;
 
-if (payload.text) {
-  transcript = payload.text.trim();
-} else if (payload.audio) {
-  transcript = await this.sttAdapter.transcribe(
-    payload.audio,
-  );
-} else {
-  this.logger.warn(
-    `[KioskService] No audio or text provided for phone input`,
-  );
-  return;
-}
+    if (payload.text) {
+      transcript = payload.text.trim();
+    } else if (payload.audio) {
+      transcript = await this.sttAdapter.transcribe(payload.audio);
+    } else {
+      this.logger.warn(`[KioskService] No audio or text provided for phone input`);
+      return;
+    }
 
-    this.logger.log(
-      `[KioskService] Transcript: ${transcript}`,
-    );
+    this.logger.log(`[KioskService] Transcript: ${transcript}`);
 
-    // 2. Understand the customer's answer.
-    const result = await this.nluAdapter.parse(
-      transcript,
-      'providing phone number',
-    );
+    const result = await this.nluAdapter.parse(transcript, 'providing phone number');
 
-    this.logger.log(
-      `[KioskService] NLU result: ${JSON.stringify(result)}`,
-    );
+    this.logger.log(`[KioskService] NLU result: ${JSON.stringify(result)}`);
 
-      // 3. Make sure NLU actually detected a phone number.
- if (result.intent != 'PHONE') {
-  if (session.phoneRetries === 0) {
-    await this.sessionService.updateSession(
-      session.sessionId,
-      {
-        phoneRetries: 1,
-      },
-    );
+    if (result.intent != 'PHONE') {
+      if (session.phoneRetries === 0) {
+        await this.sessionService.updateSession(session.sessionId, {
+          phoneRetries: 1,
+        });
 
-    await this.askForPhone(session);
-    return;
-  }
+        await this.askForPhone(session);
+        return;
+      }
 
-  await this.showPhoneKeyboard(session);
-  return;
-}
+      await this.showPhoneKeyboard(session);
+      return;
+    }
 
-  // 4. Get the phone number extracted by NLU.
+    const phone =
+      result.intent === 'PHONE' && result.entities?.phone != null
+        ? String(result.entities.phone)
+        : '';
 
-       const phone =
-       result.intent === 'PHONE' && result.entities?.phone != null
-         ? String(result.entities.phone)
-         : '';
+    if (!phone) {
+      this.logger.warn(`[KioskService] NLU returned PHONE intent without a phone entity`);
 
+      return;
+    }
 
-  if (!phone) {
-    this.logger.warn(
-      `[KioskService] NLU returned PHONE intent without a phone entity`,
-    );
+    this.logger.log(`[KioskService] Phone number extracted: ${phone}`);
 
-    return;
-  }
+    const updatedSession = await this.sessionService.updateSession(session.sessionId, {
+      phone,
+      phoneRetries: 0,
+    });
 
-  this.logger.log(
-    `[KioskService] Phone number extracted: ${phone}`,
-  );
-
-  // 5. Save the phone number in the session.
-  const updatedSession = await this.sessionService.updateSession(
-  session.sessionId,
-  {
-    phone,
-    phoneRetries: 0,
-  },
-);
-
-  //6.Confirm the phone again
-  await this.greeting(updatedSession)
-
-  // 6. Continue to the next check-in step.
- // await this.continueCheckIn(session, phone);
+    await this.greeting(updatedSession);
   }
 
   /**
@@ -370,23 +267,13 @@ if (payload.text) {
    */
   private async greeting(session: KioskSession) {
     const message =
-      `أهلاً بك  ${session.customerName}  ` +
-      `رقمك هو  ${session.phone}  ` +
-      `فقط قل نعم او لا`;
+      `أهلاً بك  ${session.customerName}  ` + `رقمك هو  ${session.phone}  ` + `فقط قل نعم او لا`;
 
-    const audio = await this.ttsAdapter.synthesize(
-      message,
-    );
+    const audio = await this.ttsAdapter.synthesize(message);
 
-    // The greeting has been sent.
-    // The next thing we expect from the customer
-    // is YES or NO.
-    await this.sessionService.updateSession(
-      session.sessionId,
-      {
-        currentState: KioskStateEnum.CONFIRMING_PHONE,
-      },
-    );
+    await this.sessionService.updateSession(session.sessionId, {
+      currentState: KioskStateEnum.CONFIRMING_PHONE,
+    });
 
     this.kioskGateway.sendOutput({
       sessionId: session.sessionId,
@@ -394,36 +281,27 @@ if (payload.text) {
       state: KioskStateEnum.CONFIRMING_PHONE,
       message,
       audio,
-      inputMode:inputModeEnum.VOICE
+      inputMode: inputModeEnum.VOICE,
     });
   }
 
+  private async askForName(session: KioskSession) {
+    const message = 'أهلاً بك، من فضلك أدخل اسمك';
 
-  private async askForName(session: KioskSession){
-    const message =
-    'أهلاً بك، من فضلك أدخل اسمك'
+    const audio = await this.ttsAdapter.synthesize(message);
 
-      const audio = await this.ttsAdapter.synthesize(
-      message,
-    );
+    await this.sessionService.updateSession(session.sessionId, {
+      currentState: KioskStateEnum.NAME_ASKING,
+    });
 
-    await this.sessionService.updateSession(
-      session.sessionId,
-      {
-        currentState: KioskStateEnum.NAME_ASKING,
-      },
-    );
-
-      this.kioskGateway.sendOutput({
+    this.kioskGateway.sendOutput({
       sessionId: session.sessionId,
       gateId: session.gateId,
       state: KioskStateEnum.NAME_ASKING,
       message,
       audio,
-      inputMode:inputModeEnum.TEXT
+      inputMode: inputModeEnum.TEXT,
     });
-
-
   }
 
   private async complete(session: KioskSession) {
@@ -447,84 +325,39 @@ if (payload.text) {
       return;
     }
 
-    // try {
-    //   const gateOpened = await this.gateAdapter.openGate(session.gateId);
-    //   if (!gateOpened) {
-    //     throw new Error(`Gate ${session.gateId} did not open`);
-    //   }
+    try {
+      await this.checkinService.submit({
+        gateId: session.gateId,
+        plate: session.plateNo,
+        name: session.customerName,
+        phone: session.phone,
+        source: 'VOICE',
+        preferredContactMethod: session.contactMethod,
+      });
+    } catch (error) {
+      this.logger.error(`[KioskService] Failed to open gate ${session.gateId}`, error);
 
-    //   this.logger.log(
-    //     `[KioskService] Gate ${session.gateId} opened successfully`,
-    //   );
-
-    //   await this.sessionService.updateSession(
-    //     session.sessionId,
-    //     {
-    //       currentState: KioskStateEnum.COMPLETED,
-    //       confirmationRetries: 0,
-    //     },
-    //   );
-
-    //   this.eventEmitter.emit(
-    //     EVENTS.CHECKIN_COMPLETED,
-    //     {
-    //       sessionId: session.sessionId,
-    //       gateId: session.gateId,
-    //       gateOpened: true,
-    //     },
-    //   );
-    // } 
-try{
-await this.checkinService.submit({
-  
-  gateId:session.gateId,
-  plate: session.plateNo,
-  name: session.customerName,
-  phone: session.phone,
-  source: 'VOICE',
-  contactMethod: session.contactMethod ?? null,
-})
-}
-
-    catch (error) {
-      this.logger.error(
-        `[KioskService] Failed to open gate ${session.gateId}`,
-        error,
-      );
-
-      // Keep the session in CHECKING_IN for now.
-      // We can define the failure/retry behavior separately.
-      this.eventEmitter.emit(
-        EVENTS.CHECKIN_COMPLETED,
-        {
-          sessionId: session.sessionId,
-          gateId: session.gateId,
-          gateOpened: false,
-        },
-      );
+      this.eventEmitter.emit(EVENTS.CHECKIN_COMPLETED, {
+        sessionId: session.sessionId,
+        gateId: session.gateId,
+        gateOpened: false,
+      });
     }
 
     return;
   }
 
-    /**
+  /**
    * Asks the customer for their phone number.
    */
   private async askForPhone(session: KioskSession) {
     const message = 'ما هو رقمك؟';
 
-    const audio = await this.ttsAdapter.synthesize(
-      message,
-    );
+    const audio = await this.ttsAdapter.synthesize(message);
 
-    // The next input from the frontend should be
-    // interpreted as a phone number.
-    await this.sessionService.updateSession(
-      session.sessionId,
-      {
-        currentState: KioskStateEnum.PHONE_ASKING,
-      },
-    );
+    await this.sessionService.updateSession(session.sessionId, {
+      currentState: KioskStateEnum.PHONE_ASKING,
+    });
 
     this.kioskGateway.sendOutput({
       sessionId: session.sessionId,
@@ -532,57 +365,50 @@ await this.checkinService.submit({
       state: KioskStateEnum.PHONE_ASKING,
       message,
       audio,
-      inputMode:inputModeEnum.VOICE
+      inputMode: inputModeEnum.VOICE,
     });
   }
 
   private async showConfirmationButtons(session: KioskSession) {
-  const message = 'من فضلك اضغط على الإجابة';
+    const message = 'من فضلك اضغط على الإجابة';
 
-  const audio = await this.ttsAdapter.synthesize(message);
+    const audio = await this.ttsAdapter.synthesize(message);
 
-  await this.sessionService.updateSession(
-    session.sessionId,
-    {
+    await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.CONFIRMING_PHONE,
-    },
-  );
+    });
 
-  this.kioskGateway.sendOutput({
-    sessionId: session.sessionId,
-    gateId: session.gateId,
-    state: KioskStateEnum.CONFIRMING_PHONE,
-    message,
-    audio,
-    inputMode:inputModeEnum.BUTTONS
-  });
-}
+    this.kioskGateway.sendOutput({
+      sessionId: session.sessionId,
+      gateId: session.gateId,
+      state: KioskStateEnum.CONFIRMING_PHONE,
+      message,
+      audio,
+      inputMode: inputModeEnum.BUTTONS,
+    });
+  }
 
-private async showPhoneKeyboard(session: KioskSession) {
-  const message = 'من فضلك أدخل رقم هاتفك';
+  private async showPhoneKeyboard(session: KioskSession) {
+    const message = 'من فضلك أدخل رقم هاتفك';
 
-  const audio = await this.ttsAdapter.synthesize(message);
+    const audio = await this.ttsAdapter.synthesize(message);
 
-  await this.sessionService.updateSession(
-    session.sessionId,
-    {
+    await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.PHONE_ASKING,
-    },
-  );
+    });
 
-  this.kioskGateway.sendOutput({
-    sessionId: session.sessionId,
-    gateId: session.gateId,
-    state: KioskStateEnum.PHONE_ASKING,
-    message,
-    audio,
-    inputMode: inputModeEnum.TEXT,
-  });
-}
+    this.kioskGateway.sendOutput({
+      sessionId: session.sessionId,
+      gateId: session.gateId,
+      state: KioskStateEnum.PHONE_ASKING,
+      message,
+      audio,
+      inputMode: inputModeEnum.TEXT,
+    });
+  }
 
   private async askForContactMethod(session: KioskSession) {
-    const message =
-      'كيف تفضل أن نتواصل معك؟ رسالة نصية، واتساب، تطبيق الساير، أم اتصال؟';
+    const message = 'كيف تفضل أن نتواصل معك؟ رسالة نصية، واتساب، تطبيق الساير، أم اتصال؟';
 
     const audio = await this.ttsAdapter.synthesize(message);
 
@@ -600,10 +426,7 @@ private async showPhoneKeyboard(session: KioskSession) {
     });
   }
 
-  private async handleContactMethodInput(
-    session: KioskSession,
-    payload: KioskInputDto,
-  ) {
+  private async handleContactMethodInput(session: KioskSession, payload: KioskInputDto) {
     this.logger.log(
       `[KioskService] Contact method input received for session ${session.sessionId}`,
     );
@@ -615,24 +438,15 @@ private async showPhoneKeyboard(session: KioskSession) {
     } else if (payload.audio) {
       transcript = await this.sttAdapter.transcribe(payload.audio);
     } else {
-      this.logger.warn(
-        `[KioskService] No audio or text provided for contact method input`,
-      );
+      this.logger.warn(`[KioskService] No audio or text provided for contact method input`);
       return;
     }
 
-    this.logger.log(
-      `[KioskService] Contact method transcript: ${transcript}`,
-    );
+    this.logger.log(`[KioskService] Contact method transcript: ${transcript}`);
 
-    const result = await this.nluAdapter.parse(
-      transcript,
-      'selecting contact method',
-    );
+    const result = await this.nluAdapter.parse(transcript, 'selecting contact method');
 
-    this.logger.log(
-      `[KioskService] NLU result: ${JSON.stringify(result)}`,
-    );
+    this.logger.log(`[KioskService] NLU result: ${JSON.stringify(result)}`);
 
     const contactMethod =
       result.intent === 'CONTACT_METHOD' && result.entities?.contactMethod
@@ -640,19 +454,17 @@ private async showPhoneKeyboard(session: KioskSession) {
         : null;
 
     if (contactMethod) {
-      const updatedSession = await this.sessionService.updateSession(
-        session.sessionId,
-        {
-          contactMethod,
-          contactMethodRetries: 0,
-        },
-      );
+      const updatedSession = await this.sessionService.updateSession(session.sessionId, {
+        contactMethod,
+        contactMethodRetries: 0,
+      });
 
       await this.complete(updatedSession);
       return;
     }
 
     const retries = session.contactMethodRetries ?? 0;
+
     if (retries === 0) {
       await this.sessionService.updateSession(session.sessionId, {
         contactMethodRetries: 1,

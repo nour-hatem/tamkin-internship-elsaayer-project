@@ -6,5 +6,5 @@ export interface CheckInRequestDto {
   name: string;
   phone: string;
   source: 'QR' | 'VOICE';
-  contactMethod?: ContactMethod | null;
+  preferredContactMethod: ContactMethod;
 }

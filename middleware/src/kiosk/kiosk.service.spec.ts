@@ -13,7 +13,10 @@ import { NluRulesAdapter } from '../ai/nlu/nlu-rules.adapter';
 describe('KioskService (Voice Contact Method Integration)', () => {
   let service: KioskService;
   let checkInService: { submit: jest.Mock };
-  let kioskGateway: { sendOutput: jest.Mock; getKioskSocketIdForGate: jest.Mock };
+  let kioskGateway: {
+    sendOutput: jest.Mock;
+    getKioskSocketIdForGate: jest.Mock;
+  };
   let ttsAdapter: { synthesize: jest.Mock };
   let sttAdapter: { transcribe: jest.Mock };
   let nluAdapter: NluRulesAdapter;
@@ -23,7 +26,10 @@ describe('KioskService (Voice Contact Method Integration)', () => {
     sessions = new Map<string, KioskSession>();
 
     checkInService = {
-      submit: jest.fn().mockResolvedValue({ success: true, queueEntryId: 'TICK-1001' }),
+      submit: jest.fn().mockResolvedValue({
+        success: true,
+        queueEntryId: 'TICK-1001',
+      }),
     };
 
     kioskGateway = {
@@ -56,51 +62,124 @@ describe('KioskService (Voice Contact Method Integration)', () => {
           contactMethod: dto.contactMethod ?? null,
           socketId: dto.socketId ?? null,
         };
+
         sessions.set(session.sessionId, session);
+
         return session;
       }),
+
       getSession: jest.fn().mockImplementation(async (id: string) => {
         return sessions.get(id) || null;
       }),
+
       updateSession: jest.fn().mockImplementation(async (id: string, partial: any) => {
         const session = sessions.get(id);
-        if (!session) throw new Error('Session not found');
-        const updated = { ...session, ...partial };
+
+        if (!session) {
+          throw new Error('Session not found');
+        }
+
+        const updated = {
+          ...session,
+          ...partial,
+        };
+
         sessions.set(id, updated);
+
         return updated;
       }),
-      transitionState: jest.fn().mockImplementation(async (id: string, expected: string, next: string) => {
-        const session = sessions.get(id);
-        if (!session) return { status: 'SESSION_NOT_FOUND', session: null };
-        if (session.currentState !== expected) {
-          return { status: 'STATE_MISMATCH', currentState: session.currentState, session: null };
-        }
-        session.currentState = next;
-        sessions.set(id, session);
-        return { status: 'SUCCESS', session };
-      }),
+
+      transitionState: jest
+        .fn()
+        .mockImplementation(async (id: string, expected: string, next: string) => {
+          const session = sessions.get(id);
+
+          if (!session) {
+            return {
+              status: 'SESSION_NOT_FOUND',
+              session: null,
+            };
+          }
+
+          if (session.currentState !== expected) {
+            return {
+              status: 'STATE_MISMATCH',
+              currentState: session.currentState,
+              session: null,
+            };
+          }
+
+          session.currentState = next;
+
+          sessions.set(id, session);
+
+          return {
+            status: 'SUCCESS',
+            session,
+          };
+        }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         KioskService,
+
         {
           provide: ConfigService,
           useValue: {
             get: jest.fn().mockImplementation((key: string, def: any) => {
-              if (key === 'ACTIVE_APPROACH') return 'voice';
+              if (key === 'ACTIVE_APPROACH') {
+                return 'voice';
+              }
+
               return def;
             }),
           },
         },
-        { provide: SessionService, useValue: mockSessionService },
-        { provide: CheckInService, useValue: checkInService },
-        { provide: KioskGateway, useValue: kioskGateway },
-        { provide: 'ITtsAdapter', useValue: ttsAdapter },
-        { provide: 'ISttAdapter', useValue: sttAdapter },
-        { provide: 'INluAdapter', useValue: nluAdapter },
-        { provide: 'IGateAdapter', useValue: { openGate: jest.fn().mockResolvedValue(true) } },
-        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+
+        {
+          provide: SessionService,
+          useValue: mockSessionService,
+        },
+
+        {
+          provide: CheckInService,
+          useValue: checkInService,
+        },
+
+        {
+          provide: KioskGateway,
+          useValue: kioskGateway,
+        },
+
+        {
+          provide: 'ITtsAdapter',
+          useValue: ttsAdapter,
+        },
+
+        {
+          provide: 'ISttAdapter',
+          useValue: sttAdapter,
+        },
+
+        {
+          provide: 'INluAdapter',
+          useValue: nluAdapter,
+        },
+
+        {
+          provide: 'IGateAdapter',
+          useValue: {
+            openGate: jest.fn().mockResolvedValue(true),
+          },
+        },
+
+        {
+          provide: EventEmitter2,
+          useValue: {
+            emit: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -113,12 +192,18 @@ describe('KioskService (Voice Contact Method Integration)', () => {
       gateId: 'gate-1',
       plate: '123-ABC',
       found: true,
-      profile: { name: 'أحمد', phone: '01012345678' },
+      profile: {
+        name: 'أحمد',
+        phone: '01012345678',
+      },
     });
 
     const session = sessions.get('session-123')!;
+
     expect(session.currentState).toBe(KioskStateEnum.CONFIRMING_PHONE);
+
     expect(session.contactMethod).toBeNull();
+
     expect(session.contactMethodRetries).toBe(0);
 
     // 2. Customer confirms phone number with YES
@@ -131,7 +216,9 @@ describe('KioskService (Voice Contact Method Integration)', () => {
 
     // Verify state transitioned to CONTACT_METHOD_ASKING and voice prompt was sent
     expect(sessions.get('session-123')!.currentState).toBe(KioskStateEnum.CONTACT_METHOD_ASKING);
+
     expect(checkInService.submit).not.toHaveBeenCalled();
+
     expect(kioskGateway.sendOutput).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'session-123',
@@ -140,8 +227,9 @@ describe('KioskService (Voice Contact Method Integration)', () => {
       }),
     );
 
-    // 3. Customer answers with WhatsApp via audio (transcribed to "واتساب")
+    // 3. Customer answers with WhatsApp via audio
     sttAdapter.transcribe.mockResolvedValueOnce('واتساب');
+
     await service.handleInput({
       sessionId: 'session-123',
       gateId: 'gate-1',
@@ -151,14 +239,16 @@ describe('KioskService (Voice Contact Method Integration)', () => {
 
     // Verify session updated and check-in submitted with WHATSAPP
     expect(sessions.get('session-123')!.contactMethod).toBe('WHATSAPP');
+
     expect(checkInService.submit).toHaveBeenCalledTimes(1);
+
     expect(checkInService.submit).toHaveBeenCalledWith({
       gateId: 'gate-1',
       plate: '123-ABC',
       name: 'أحمد',
       phone: '01012345678',
       source: 'VOICE',
-      contactMethod: 'WHATSAPP',
+      preferredContactMethod: 'WHATSAPP',
     });
   });
 
@@ -176,9 +266,10 @@ describe('KioskService (Voice Contact Method Integration)', () => {
       contactMethodRetries: 0,
       contactMethod: null,
     };
+
     sessions.set(session.sessionId, session);
 
-    // 2. First attempt: unrecognized speech ("مش فاهم قصدك ايه")
+    // 2. First attempt: unrecognized speech
     await service.handleInput({
       sessionId: 'session-retry',
       gateId: 'gate-2',
@@ -191,7 +282,9 @@ describe('KioskService (Voice Contact Method Integration)', () => {
 
     // Session retries incremented to 1
     const sessionAfterFirst = sessions.get('session-retry')!;
+
     expect(sessionAfterFirst.contactMethodRetries).toBe(1);
+
     expect(sessionAfterFirst.contactMethod).toBeNull();
 
     // Re-prompted with VOICE mode
@@ -203,7 +296,7 @@ describe('KioskService (Voice Contact Method Integration)', () => {
       }),
     );
 
-    // 3. Second attempt: valid method ("رسالة نصية")
+    // 3. Second attempt: valid method
     await service.handleInput({
       sessionId: 'session-retry',
       gateId: 'gate-2',
@@ -213,16 +306,18 @@ describe('KioskService (Voice Contact Method Integration)', () => {
 
     // Check-in submitted with SMS
     expect(checkInService.submit).toHaveBeenCalledTimes(1);
+
     expect(checkInService.submit).toHaveBeenCalledWith({
       gateId: 'gate-2',
       plate: '456-XYZ',
       name: 'محمد',
       phone: '01298765432',
       source: 'VOICE',
-      contactMethod: 'SMS',
+      preferredContactMethod: 'SMS',
     });
 
     const sessionAfterSecond = sessions.get('session-retry')!;
+
     expect(sessionAfterSecond.contactMethod).toBe('SMS');
   });
 
@@ -240,6 +335,7 @@ describe('KioskService (Voice Contact Method Integration)', () => {
       contactMethodRetries: 1,
       contactMethod: null,
     };
+
     sessions.set(session.sessionId, session);
 
     // Second unrecognized utterance
@@ -252,7 +348,9 @@ describe('KioskService (Voice Contact Method Integration)', () => {
 
     // Must NOT submit check-in or pick a default method
     expect(checkInService.submit).not.toHaveBeenCalled();
+
     const updated = sessions.get('session-fallback')!;
+
     expect(updated.contactMethod).toBeNull();
 
     // Must show buttons on frontend
