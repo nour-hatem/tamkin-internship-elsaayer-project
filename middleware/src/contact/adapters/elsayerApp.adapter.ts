@@ -3,7 +3,7 @@ import { IContactAdapter } from '../ports/contact.port';
 import { Notification } from '@common/dtos/notidication.dto';
 
 
-export class ElsayerAppAdapter implements IContactAdapter {
+export class ElsaayerAppAdapter implements IContactAdapter {
   async send(notification: Notification): Promise<ContactResult> {
     console.log(
       `ELSAYER APP MESSAGE IS SIMULATED TO ${notification.phone}`
