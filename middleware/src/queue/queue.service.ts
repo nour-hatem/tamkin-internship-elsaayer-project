@@ -1,3 +1,4 @@
+import { ContactMethod } from '@common/enums/contactMethod.enum';
 import { Injectable, Logger } from '@nestjs/common';
 
 export interface QueueTicket {
@@ -7,8 +8,10 @@ export interface QueueTicket {
   name: string;
   phone: string;
   source: 'QR' | 'VOICE';
+  preferredContactMethod: ContactMethod;
   status: 'QUEUED' | 'IN_SERVICE' | 'COMPLETED';
   createdAt: Date;
+
 }
 
 @Injectable()
@@ -23,6 +26,7 @@ export class QueueService {
     name: string,
     phone: string,
     source: 'QR' | 'VOICE',
+    preferredContactMethod:ContactMethod
   ): Promise<QueueTicket> {
     this.ticketCounter += 1;
     const ticketId = `TICK-${this.ticketCounter}`;
@@ -36,6 +40,7 @@ export class QueueService {
       source,
       status: 'QUEUED',
       createdAt: new Date(),
+      preferredContactMethod
     };
 
     this.tickets.push(ticket);
