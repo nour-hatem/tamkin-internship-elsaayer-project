@@ -36,6 +36,7 @@ export class CheckInService {
         success: false,
         gateOpened: false,
         queueEntryId: existingTicket.ticketId,
+        phone:existingTicket.phone,
         reason: `Customer with plate ${request.plate} is already checked in (Ticket: ${existingTicket.ticketId})`,
       };
 
