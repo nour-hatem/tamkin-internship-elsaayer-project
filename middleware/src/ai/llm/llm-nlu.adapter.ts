@@ -4,33 +4,32 @@ import { INluAdapter } from '../nlu/nlu.port';
 import { AiConfigService } from '../config/ai-config.service';
 import { NluRulesAdapter, extractPhone, normalize } from '../nlu/nlu-rules.adapter';
 import { HttpTimeoutError, fetchWithTimeout, safeBodySnippet } from '../common/http';
+import { ContactMethod, CONTACT_METHOD_OPTIONS } from '../nlu/contact-method';
 
 /**
  * What this classifier is allowed to emit, stated to the model.
  * Both providers speak the OpenAI /chat/completions dialect.
  */
 const SYSTEM_PROMPT = [
-  'You classify ONE short spoken utterance from a driver at a vehicle gate kiosk in Egypt.',
+  'You classify ONE spoken utterance from a driver at a vehicle gate kiosk in Egypt.',
   'The driver speaks Egyptian Arabic or English.',
   'Reply with ONLY a JSON object. No prose, no explanation, no markdown fences.',
   '',
-  'Exactly one of these four shapes is allowed:',
+  'Given the full utterance and the current question context, determine what the user meant.',
+  'Exactly one of these five shapes is allowed:',
   '{"intent":"YES"} - agreement, confirmation, assent',
   '{"intent":"NO"} - disagreement, refusal, denial',
-  '{"intent":"PHONE","phone":"..."} - a valid phone number',
+  '{"intent":"PHONE","phone":"..."} - a valid phone number (7 to 15 digits)',
+  '{"intent":"CONTACT_METHOD","contactMethod":"..."} - selected contact method: "SMS", "WHATSAPP", "ELSAAYER_APP", or "CALLING_AGENT"',
   '{"intent":"UNKNOWN"} - anything else, or whenever you are not sure',
   '',
   'Rules:',
-  '- PHONE must contain a valid phone number with 7 to 15 digits.',
-  '- Extract phone numbers spoken digit-by-digit or as Arabic/English number words.',
-  '- The driver may correct a digit they just spoke.',
-  '- When the driver explicitly corrects a digit, replace the originally spoken digit with the corrected digit.',
-  '- Corrections may appear in natural conversational language such as "sorry", "I mean", "not X, Y", "the last number is Y not X", or "X should be Y".',
-
-  '- The corrected number does not need to appear literally in the utterance.',
-  '- Do not invent digits that are not supported by the utterance.',
-  '- If the phone number cannot be determined confidently, answer {"intent":"UNKNOWN"}.',
-  '- If the utterance is empty, unrelated, or ambiguous, answer {"intent":"UNKNOWN"}.',
+  '- Consider the question context when interpreting ambiguous, conversational, or indirect utterances.',
+  '- For YES: clear affirmation or agreement in the given context.',
+  '- For NO: clear negation or refusal in the given context.',
+  '- For PHONE: extract the intended phone number (Egyptian mobile typically 11 digits starting 01). Handle mid-sentence corrections (e.g. "not X, Y", "I mean Y", "bad number, new number is Y").',
+  '- For CONTACT_METHOD: "contactMethod" must be one of: "SMS", "WHATSAPP", "ELSAAYER_APP", "CALLING_AGENT". Option numbers map to: 1=SMS, 2=WHATSAPP, 3=ELSAAYER_APP, 4=CALLING_AGENT.',
+  '- If the utterance is empty, unrelated, or cannot be determined confidently, answer {"intent":"UNKNOWN"}.',
   '- When in doubt, answer {"intent":"UNKNOWN"}. A wrong guess at a gate barrier is worse than asking again.',
 ].join('\n');
 
@@ -45,11 +44,12 @@ interface ProviderConfig {
   readonly model: string;
 }
 
-/** Internal four-variant discriminated type used before mapping to NluResultDto. */
+/** Internal five-variant discriminated type used before mapping to NluResultDto. */
 type ClassifyResult =
   | { intent: 'YES' }
   | { intent: 'NO' }
   | { intent: 'PHONE'; phone: string }
+  | { intent: 'CONTACT_METHOD'; contactMethod: ContactMethod }
   | { intent: 'UNKNOWN' };
 
 /**
@@ -83,20 +83,24 @@ export class LlmNluAdapter implements INluAdapter {
     private readonly config: AiConfigService,
   ) {}
 
-  async parse(text: string): Promise<NluResultDto> {
+  async parse(text: string, context?: string): Promise<NluResultDto> {
     // Rules first, always. A clear utterance must never cost an LLM call.
-    const ruled = await this.rules.parse(text);
+    const ruled = await this.rules.parse(text, context);
     if (ruled.intent !== 'UNKNOWN') return ruled;
 
     if (!this.config.llmFallbackEnabled) {
       return UNKNOWN_DTO;
     }
 
-    const normalized = normalize(text ?? '');
-    if (normalized.length === 0) return UNKNOWN_DTO;
+    if (!text || text.trim().length === 0) return UNKNOWN_DTO;
+
+    // Send the full original transcript and current question context to ground the LLM
+    const userPrompt = context
+      ? `Context: ${context}\nUtterance: "${text}"`
+      : `Utterance: "${text}"`;
 
     for (const provider of this.providers()) {
-      const result = await this.tryProvider(provider, normalized);
+      const result = await this.tryProvider(provider, userPrompt, text);
       if (result !== undefined) return toDto(result);
     }
 
@@ -127,7 +131,8 @@ export class LlmNluAdapter implements INluAdapter {
    */
   private async tryProvider(
     provider: ProviderConfig,
-    normalized: string,
+    userPrompt: string,
+    rawText: string,
   ): Promise<ClassifyResult | undefined> {
     if (!provider.apiKey) {
       this.logger.warn(`Skipping ${provider.name}: API key is not configured`);
@@ -151,7 +156,7 @@ export class LlmNluAdapter implements INluAdapter {
             max_tokens: 150,
             messages: [
               { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: normalized },
+              { role: 'user', content: userPrompt },
             ],
           }),
         },
@@ -177,7 +182,7 @@ export class LlmNluAdapter implements INluAdapter {
         return undefined;
       }
 
-      if (parsed.intent === 'PHONE' && extractPhone(normalized) !== parsed.phone) {
+      if (parsed.intent === 'PHONE' && extractPhone(rawText) !== parsed.phone) {
         this.logger.log(
           `${provider.name} derived a phone number not present verbatim in the transcript`,
         );
@@ -229,6 +234,10 @@ export function parseClassifyResult(content: string): ClassifyResult | undefined
             return { intent: 'NO' };
           case 'PHONE':
             return { intent: 'PHONE', phone: parsed.phone };
+          case 'CONTACT_METHOD': {
+            const method = (parsed.contactMethod ?? (parsed as any).contact_method) as ContactMethod;
+            return { intent: 'CONTACT_METHOD', contactMethod: method };
+          }
           case 'UNKNOWN':
             return { intent: 'UNKNOWN' };
         }
@@ -251,7 +260,16 @@ function isClassifyResult(value: unknown): value is ClassifyResult {
       return true;
     case 'PHONE': {
       const phone = (value as { phone?: unknown }).phone;
-      return typeof phone === 'string' && /^\d{7,15}$/.test(phone);;
+      return typeof phone === 'string' && /^\d{7,15}$/.test(phone);
+    }
+    case 'CONTACT_METHOD': {
+      const contactMethod =
+        (value as { contactMethod?: unknown }).contactMethod ??
+        (value as { contact_method?: unknown }).contact_method;
+      return (
+        typeof contactMethod === 'string' &&
+        CONTACT_METHOD_OPTIONS.includes(contactMethod as ContactMethod)
+      );
     }
     default:
       return false;
@@ -266,6 +284,12 @@ function toDto(result: ClassifyResult): NluResultDto {
       return { intent: 'NO', confidence: 0.98, entities: {} };
     case 'PHONE':
       return { intent: 'PHONE', confidence: 0.99, entities: { phone: result.phone } };
+    case 'CONTACT_METHOD':
+      return {
+        intent: 'CONTACT_METHOD',
+        confidence: 0.97,
+        entities: { contactMethod: result.contactMethod },
+      };
     case 'UNKNOWN':
       return UNKNOWN_DTO;
   }

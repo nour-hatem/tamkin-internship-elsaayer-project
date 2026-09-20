@@ -51,6 +51,7 @@ export class CheckInService {
       request.name,
       request.phone,
       request.source,
+      request.contactMethod,
     );
 
     // Notify listeners that the check-in was submitted.
@@ -60,6 +61,7 @@ export class CheckInService {
       name: request.name,
       phone: request.phone,
       source: request.source,
+      contactMethod: request.contactMethod,
       queueEntryId: ticket.ticketId,
     });
 

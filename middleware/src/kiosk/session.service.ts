@@ -32,6 +32,8 @@ export class SessionService {
       currentState: initialState,
       phoneRetries: 0,
       confirmationRetries: 0,
+      contactMethodRetries: dto.contactMethodRetries ?? 0,
+      contactMethod: dto.contactMethod ?? null,
       socketId: dto.socketId ?? null,
     };
 
