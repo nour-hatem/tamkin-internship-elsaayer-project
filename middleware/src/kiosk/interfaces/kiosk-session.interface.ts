@@ -1,3 +1,5 @@
+import { ContactMethod } from 'src/ai';
+
 export interface KioskSession {
   sessionId: string;
   gateId: string;
@@ -7,6 +9,8 @@ export interface KioskSession {
   currentState: string;
   confirmationRetries: number;
   phoneRetries: number;
+  contactMethod?: ContactMethod | null;
+  contactMethodRetries?: number;
   socketId?: string | null;
 }
 

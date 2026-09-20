@@ -5,6 +5,7 @@ import { PlateReadDto } from './dtos/plate-read.dto';
 import { SapLookupResultDto } from './dtos/sap-lookup-result.dto';
 import { CheckInRequestDto } from './dtos/checkin-request.dto';
 import { CheckInResultDto } from './dtos/checkin-result.dto';
+import { ContactMethod } from '../ai';
 
 export interface CheckinSubmittedPayload {
   gateId: string;
@@ -14,6 +15,7 @@ export interface CheckinSubmittedPayload {
   source: 'QR' | 'VOICE';
   preferredContactMethod: CheckInRequestDto['preferredContactMethod'];
   queueEntryId: string;
+  contactMethod?: ContactMethod | null;
 }
 
 export interface EventPayloadMap {

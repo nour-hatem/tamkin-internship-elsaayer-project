@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ContactMethod } from '../common/dtos/checkin-request.dto';
+import { ContactMethod } from '../ai';
 
 export type QueueTicketStatus =
   'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED';

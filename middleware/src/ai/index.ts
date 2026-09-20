@@ -23,6 +23,7 @@ export { TtsProviderError, TtsFailureReason } from './tts/tts-provider.error';
 export { INluAdapter, NLU_ADAPTER_TOKEN } from './nlu/nlu.port';
 export { StubNluAdapter } from './nlu/stub-nlu.adapter';
 export { NluRulesAdapter } from './nlu/nlu-rules.adapter';
+export { ContactMethod, CONTACT_METHOD_OPTIONS } from './nlu/contact-method';
 
 // LLM
 export { ILlmAdapter, LLM_ADAPTER_TOKEN } from './llm/llm.port';
