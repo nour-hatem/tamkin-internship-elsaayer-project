@@ -18,6 +18,11 @@ export interface CheckinSubmittedPayload {
   contactMethod?: ContactMethod | null;
 }
 
+export interface ContactOutcomePayload {
+  ticketId: string;
+  slotId: string;
+}
+
 export interface EventPayloadMap {
   [EVENTS.PLATE_READ]: PlateReadDto;
   [EVENTS.SAP_LOOKUP_RESULT]: SapLookupResultDto;
@@ -37,6 +42,8 @@ export interface EventPayloadMap {
     state: string;
     data?: any;
   };
+  [EVENTS.CONTACT_ACK]: ContactOutcomePayload;
+  [EVENTS.CONTACT_TIMEOUT]: ContactOutcomePayload;
 }
 
 @Injectable()

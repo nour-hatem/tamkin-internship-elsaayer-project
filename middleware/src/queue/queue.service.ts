@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { ContactMethod } from '../ai';
+import { EVENTS } from '../common/events';
+import type { ContactOutcomePayload } from '../common/typed-event-emitter.service';
 
 export type QueueTicketStatus =
   'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED';
@@ -233,6 +236,125 @@ export class QueueService {
     return ticket;
   }
 
+  /**
+   * Handles a successful contact acknowledgement.
+   *
+   * ContactService emits this event when the customer accepts
+   * the slot assignment.
+   */
+  @OnEvent(EVENTS.CONTACT_ACK)
+  async handleContactAck(payload: ContactOutcomePayload): Promise<void> {
+    const { ticketId, slotId } = payload;
+
+    const slot = await this.getSlot(slotId);
+
+    if (!slot) {
+      this.logger.warn(`[QueueService] CONTACT_ACK ignored. Slot ${slotId} does not exist.`);
+      return;
+    }
+
+    const rotation = this.rotations.get(slotId);
+
+    if (!rotation) {
+      this.logger.warn(
+        `[QueueService] CONTACT_ACK ignored. No active rotation for slot ${slotId}.`,
+      );
+      return;
+    }
+
+    const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
+
+    if (currentTicketId !== ticketId) {
+      this.logger.warn(
+        `[QueueService] CONTACT_ACK ignored. Ticket ${ticketId} is not the current candidate for slot ${slotId}. Current ticket: ${currentTicketId}`,
+      );
+      return;
+    }
+
+    const ticket = await this.getTicketById(ticketId);
+
+    if (!ticket) {
+      this.logger.warn(`[QueueService] CONTACT_ACK ignored. Ticket ${ticketId} does not exist.`);
+      return;
+    }
+
+    ticket.status = 'ACKNOWLEDGED';
+    slot.status = 'OCCUPIED';
+
+    this.rotations.delete(slotId);
+
+    this.logger.log(`[QueueService] Queue #${ticket.queueNumber} acknowledged slot ${slotId}`);
+  }
+
+  /**
+   * Handles a contact timeout.
+   *
+   * ContactService emits this event when the customer does not
+   * respond before the contact timer expires.
+   */
+  @OnEvent(EVENTS.CONTACT_TIMEOUT)
+  async handleContactTimeout(payload: ContactOutcomePayload): Promise<void> {
+    const { ticketId, slotId } = payload;
+
+    const slot = await this.getSlot(slotId);
+
+    if (!slot) {
+      this.logger.warn(`[QueueService] CONTACT_TIMEOUT ignored. Slot ${slotId} does not exist.`);
+      return;
+    }
+
+    const rotation = this.rotations.get(slotId);
+
+    if (!rotation) {
+      this.logger.warn(
+        `[QueueService] CONTACT_TIMEOUT ignored. No active rotation for slot ${slotId}.`,
+      );
+      return;
+    }
+
+    const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
+
+    if (currentTicketId !== ticketId) {
+      this.logger.warn(
+        `[QueueService] CONTACT_TIMEOUT ignored. Ticket ${ticketId} is not the current candidate for slot ${slotId}. Current ticket: ${currentTicketId}`,
+      );
+      return;
+    }
+
+    const currentTicket = await this.getTicketById(ticketId);
+
+    if (!currentTicket) {
+      this.logger.warn(
+        `[QueueService] CONTACT_TIMEOUT ignored. Ticket ${ticketId} does not exist.`,
+      );
+      return;
+    }
+
+    currentTicket.status = 'WAITING';
+
+    rotation.currentIndex = (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
+
+    if (rotation.attempts >= this.MAX_CONTACT_ATTEMPTS) {
+      rotation.attempts = 0;
+
+      this.logger.log(
+        `[QueueService] Maximum contact attempts reached. Starting a new contact cycle for slot ${slotId}`,
+      );
+    }
+
+    const nextTicket = await this.callNextCandidate(slotId);
+
+    this.logger.log(
+      `[QueueService] Queue #${currentTicket.queueNumber} timed out. Rotating to Queue #${nextTicket?.queueNumber ?? 'none'}`,
+    );
+  }
+
+  /**
+   * Simulation endpoint helper.
+   *
+   * acknowledged=true simulates CONTACT_ACK.
+   * acknowledged=false simulates CONTACT_TIMEOUT.
+   */
   async simulateAck(
     slotId: string,
     acknowledged: boolean,
@@ -263,49 +385,41 @@ export class QueueService {
       throw new Error(`Current queue ticket ${currentTicketId} does not exist`);
     }
 
+    const previousAttempts = rotation.attempts;
+
     if (acknowledged) {
-      currentTicket.status = 'ACKNOWLEDGED';
-
-      slot.status = 'OCCUPIED';
-
-      this.rotations.delete(slotId);
-
-      this.logger.log(
-        `[QueueService] Queue #${currentTicket.queueNumber} acknowledged slot ${slotId}`,
-      );
+      await this.handleContactAck({
+        ticketId: currentTicketId,
+        slotId,
+      });
 
       return {
         slot,
         ticket: currentTicket,
         acknowledged: true,
-        attempts: rotation.attempts,
+        attempts: previousAttempts,
       };
     }
 
-    currentTicket.status = 'WAITING';
+    await this.handleContactTimeout({
+      ticketId: currentTicketId,
+      slotId,
+    });
 
-    rotation.currentIndex = (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
+    const updatedRotation = this.rotations.get(slotId);
 
-    if (rotation.attempts >= this.MAX_CONTACT_ATTEMPTS) {
-      rotation.attempts = 0;
+    const nextTicketId = updatedRotation
+      ? updatedRotation.candidateTicketIds[updatedRotation.currentIndex]
+      : undefined;
 
-      this.logger.log(
-        `[QueueService] Maximum contact attempts reached. Starting a new contact cycle for slot ${slotId}`,
-      );
-    }
-
-    const nextTicket = await this.callNextCandidate(slotId);
-
-    this.logger.log(
-      `[QueueService] Queue #${currentTicket.queueNumber} did not acknowledge. Rotating to Queue #${nextTicket?.queueNumber ?? 'none'}`,
-    );
+    const nextTicket = nextTicketId ? await this.getTicketById(nextTicketId) : undefined;
 
     return {
       slot,
       ticket: currentTicket,
       nextTicket,
       acknowledged: false,
-      attempts: rotation.attempts,
+      attempts: updatedRotation?.attempts ?? 0,
     };
   }
 }
