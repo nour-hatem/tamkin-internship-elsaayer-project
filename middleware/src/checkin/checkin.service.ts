@@ -51,6 +51,7 @@ export class CheckInService {
       request.name,
       request.phone,
       request.source,
+      
     );
 
     // Notify listeners that the check-in was submitted.
@@ -86,14 +87,15 @@ export class CheckInService {
       );
     }
 
-    const result: CheckInResultDto = {
-      success: true,
-      gateOpened,
-      queueEntryId: ticket.ticketId,
-      reason: gateOpened
-        ? 'Check-in successful, gate opened.'
-        : 'Check-in recorded and queued. Gate is currently rate-limited.',
-    };
+   const result: CheckInResultDto = {
+  success: true,
+  gateOpened,
+  queueEntryId: ticket.ticketId,
+  phone: request.phone,
+  reason: gateOpened
+    ? 'Check-in successful, gate opened.'
+    : 'Check-in recorded and queued. Gate is currently rate-limited.',
+};
 
     this.logger.log(
       `Check-in complete: Ticket ${ticket.ticketId}, Gate Opened: ${gateOpened}`,
