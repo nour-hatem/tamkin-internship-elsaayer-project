@@ -127,6 +127,80 @@ describe('LlmNluAdapter (real INluAdapter port)', () => {
       const res = await build().parse('unintelligible noise');
       expect(res).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
     });
+
+    it('LLM timeout on both providers still falls back to UNKNOWN', async () => {
+      mockFetch(async (_url, init) => hangUntilAborted(init));
+
+      const result = await build({ LLM_TIMEOUT_MS: '20' }).parse(
+        'مش متاكد من الرقم خالص',
+        'confirming phone number',
+      );
+
+      expect(result).toEqual({ intent: 'UNKNOWN', confidence: 0.0, entities: {} });
+    });
+  });
+
+  describe('grounded context and ambiguous utterance fallback', () => {
+    it('grounds the LLM prompt with question context and full original transcript', async () => {
+      let seenUserPrompt: string | undefined;
+      mockFetch(async (_url, init) => {
+        const body = JSON.parse(init.body as string) as {
+          messages: Array<{ role: string; content: string }>;
+        };
+        seenUserPrompt = body.messages.find((m) => m.role === 'user')?.content;
+        return chatCompletion('{"intent":"YES"}');
+      });
+
+      await build().parse('اه بالظبط كده هو ده', 'confirming phone number');
+
+      expect(seenUserPrompt).toContain('Context: confirming phone number');
+      expect(seenUserPrompt).toContain('Utterance: "اه بالظبط كده هو ده"');
+    });
+
+    it('routes ambiguous affirmation to LLM mock that returns YES', async () => {
+      mockFetch(async () => chatCompletion('{"intent":"YES"}'));
+
+      const result = await build().parse(
+        'مش عارف اقول ايه بس ايوه تمام',
+        'confirming phone number',
+      );
+
+      expect(result).toEqual({ intent: 'YES', confidence: 0.98, entities: {} });
+    });
+
+    it('routes messy phone utterance to LLM mock that returns correct PHONE', async () => {
+      mockFetch(async () =>
+        chatCompletion('{"intent":"PHONE","phone":"01055566777"}'),
+      );
+
+      const result = await build().parse(
+        'رقمي بيبدا بصفر واحد صفر بعد كدا خمسة خمسة خمسة ستة ستة سبعة سبعة',
+        'providing phone number',
+      );
+
+      expect(result).toEqual({
+        intent: 'PHONE',
+        confidence: 0.99,
+        entities: { phone: '01055566777' },
+      });
+    });
+
+    it('routes ambiguous contact method selection to LLM mock that returns CONTACT_METHOD', async () => {
+      mockFetch(async () =>
+        chatCompletion('{"intent":"CONTACT_METHOD","contactMethod":"WHATSAPP"}'),
+      );
+
+      const result = await build().parse(
+        'مش عارف ممكن واتساب او sms',
+        'selecting contact method',
+      );
+
+      expect(result).toEqual({
+        intent: 'CONTACT_METHOD',
+        confidence: 0.97,
+        entities: { contactMethod: 'WHATSAPP' },
+      });
+    });
   });
 
   describe('parseClassifyResult', () => {
@@ -134,6 +208,8 @@ describe('LlmNluAdapter (real INluAdapter port)', () => {
       ['bare object', '{"intent":"YES"}', { intent: 'YES' }],
       ['fenced', '```json\n{"intent":"NO"}\n```', { intent: 'NO' }],
       ['embedded in prose', 'Answer: {"intent":"PHONE","phone":"01555666777"} done.', { intent: 'PHONE', phone: '01555666777' }],
+      ['contact method bare', '{"intent":"CONTACT_METHOD","contactMethod":"WHATSAPP"}', { intent: 'CONTACT_METHOD', contactMethod: 'WHATSAPP' }],
+      ['contact method snake_case', '{"intent":"CONTACT_METHOD","contact_method":"SMS"}', { intent: 'CONTACT_METHOD', contactMethod: 'SMS' }],
     ])('parses %s', (_label, content, expected) => {
       expect(parseClassifyResult(content as string)).toEqual(expected);
     });

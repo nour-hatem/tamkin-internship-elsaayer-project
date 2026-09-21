@@ -4,12 +4,14 @@ export const EVENTS = {
 
   CHECKIN_REQUEST: 'checkin.request',
   CHECKIN_SUBMITTED: 'checkin.submitted',
-  CHECKIN_DISPLAY_UPDATED: 'checkin.display.updated',
   CHECKIN_COMPLETED: 'checkin.completed',
+  CHECKIN_DISPLAY_UPDATED: 'checkin.display.updated',
 
   GATE_OPEN: 'gate.open',
   KIOSK_STATE_CHANGED: 'kiosk.state_changed',
   KIOSK_INPUT: 'KIOSK_INPUT',
+  CONTACT_ACK: 'queue.contact.ack',
+  CONTACT_TIMEOUT: 'queue.contact.timeout',
 } as const;
 
-export type EventName = typeof EVENTS[keyof typeof EVENTS];
+export type EventName = (typeof EVENTS)[keyof typeof EVENTS];

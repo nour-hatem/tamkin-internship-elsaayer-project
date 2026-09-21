@@ -5,6 +5,7 @@ import { PlateReadDto } from './dtos/plate-read.dto';
 import { SapLookupResultDto } from './dtos/sap-lookup-result.dto';
 import { CheckInRequestDto } from './dtos/checkin-request.dto';
 import { CheckInResultDto } from './dtos/checkin-result.dto';
+import { ContactMethod } from '../ai';
 
 export interface CheckinSubmittedPayload {
   gateId: string;
@@ -12,7 +13,14 @@ export interface CheckinSubmittedPayload {
   name: string;
   phone: string;
   source: 'QR' | 'VOICE';
+  preferredContactMethod: CheckInRequestDto['preferredContactMethod'];
   queueEntryId: string;
+  contactMethod?: ContactMethod | null;
+}
+
+export interface ContactOutcomePayload {
+  ticketId: string;
+  slotId: string;
 }
 
 export interface EventPayloadMap {
@@ -34,16 +42,15 @@ export interface EventPayloadMap {
     state: string;
     data?: any;
   };
+  [EVENTS.CONTACT_ACK]: ContactOutcomePayload;
+  [EVENTS.CONTACT_TIMEOUT]: ContactOutcomePayload;
 }
 
 @Injectable()
 export class TypedEventEmitter {
   constructor(private readonly eventEmitter: EventEmitter2) {}
 
-  emit<K extends keyof EventPayloadMap & string>(
-    event: K,
-    payload: EventPayloadMap[K],
-  ): boolean {
+  emit<K extends keyof EventPayloadMap & string>(event: K, payload: EventPayloadMap[K]): boolean {
     return this.eventEmitter.emit(event, payload);
   }
 }

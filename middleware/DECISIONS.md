@@ -171,3 +171,53 @@ The `^01\d{9}$` rule contradicts `diagrams/04-kiosk-conversation.mmd`'s
 
 `diagrams/07-voice-avatar-pipeline.mmd` shows TTS cached in Redis. The adapter
 does not cache; the right shape is a decorating `ITtsAdapter`. Scope-deferred.
+
+---
+
+## 2026-09-19 — Queue Voice Integration (feature/queue-voice-integration)
+
+### DR-011 — Semantic intent detection & corrected-speech phone extraction
+
+1. **Semantic full-utterance intent recognition**:
+   - Fixed `matchYesNo` to interpret the complete utterance rather than naive exact-string equality or raw substring matching.
+   - Introduced bilingual `AMBIGUOUS` token sets (`maybe`, `not`, `لو`, `ممكن`, `ولا`, etc.) to defer mixed or ambiguous utterances to LLM fallback rather than prematurely returning `UNKNOWN`.
+   - Alef variants fold `لأ` to `لا` which is included in negative sets.
+
+2. **Corrected-speech phone extraction**:
+   - `normalizeNumberWords()` runs before letter normalization to prevent diacritic and teh-marbuta folding from breaking digit-word lookups.
+   - Naive strip-all-digits was replaced by digit-run extraction and filtering for valid 11-digit Egyptian mobile numbers (`01[0125]\d{8}`).
+   - When multiple valid numbers occur in speech (e.g. self-correction "010... لا لا 012..."), the extractor selects the last valid candidate.
+
+### DR-012 — Shared ContactMethod enum and deterministic rules hierarchy
+
+- Introduced `ContactMethod` union type (`'SMS' | 'WHATSAPP' | 'ELSAAYER_APP' | 'CALLING_AGENT'`) and `CONTACT_METHOD_OPTIONS` ordered array in `src/ai/nlu/contact-method.ts`.
+- Implemented `matchContactMethod` in `NluRulesAdapter` with hierarchical resolution:
+  1. Method name (Arabic/English terms)
+  2. Bare digit (1-4 matching option indices)
+  3. Option context + digit ("الخيار الاول", "option 2")
+  4. Arabic ordinals ("الاول", "التانية", etc.)
+  5. English ordinals ("first", "second", etc.)
+- Multi-match guard: if multiple distinct methods match, resolve to `undefined` and defer to LLM rather than guessing.
+
+### DR-013 — Grounded context parameter on INluAdapter and LLM fallback
+
+- Extended `INluAdapter.parse(text: string, context?: string)` with an optional context parameter, keeping existing callers backwards-compatible.
+- `LlmNluAdapter` uses context to ground the prompt: `Context: <context>\nUtterance: "<transcript>"`.
+- Extended LLM system prompt to support 5 explicit output shapes (`YES`, `NO`, `PHONE`, `CONTACT_METHOD`, `UNKNOWN`).
+- Parsed LLM result maps `CONTACT_METHOD` into standard `NluResultDto` (`{ intent: 'CONTACT_METHOD', confidence: 0.97, entities: { contactMethod } }`).
+
+### DR-014 — Voice flow contact-method gate & retry ceiling
+
+- In `kiosk.service.ts`, added `CONTACT_METHOD_ASKING` state between phone confirmation and check-in submit. Check-in cannot proceed without a valid contact method.
+- Followed the existing binary retry ceiling used across `kiosk.service.ts`:
+  - 1st miss: increment `contactMethodRetries` to 1 and re-prompt via voice (`inputMode: VOICE`).
+  - 2nd miss: fall back to on-screen selection buttons (`inputMode: BUTTONS`).
+  - Never guess or default a contact method on the customer's behalf.
+- Kept modifications to Sara's `kiosk.service.ts` surgical: only added the state transition gate, input handler, and audio/button prompt helpers without restructuring the state machine.
+
+### DR-015 — End-to-end check-in plumbing to QueueTicket
+
+- Extended `CheckInRequestDto` and `CheckinSubmittedPayload` with `contactMethod?: ContactMethod | null`.
+- Extended `QueueService.enqueue()` and `QueueTicket` to store `contactMethod`.
+- In `kiosk.service.ts`, passed `session.contactMethod` into `checkinService.submit()` so it is recorded on the ticket and published in events.
+

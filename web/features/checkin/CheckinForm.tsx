@@ -2,6 +2,12 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 
+type ContactMethod =
+  | 'SMS'
+  | 'WHATSAPP'
+  | 'ELSAAYER_APP'
+  | 'CALLING_AGENT';
+
 type TicketData = {
   gateId: string;
   plate?: string;
@@ -24,10 +30,14 @@ export default function CheckinForm({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
 
+  const [preferredContactMethod, setPreferredContactMethod] =
+    useState<ContactMethod | ''>('');
+
   const [plateLocked, setPlateLocked] = useState(false);
   const [source, setSource] =
     useState<TicketData['source']>('GENERIC');
   const [fallbackMode, setFallbackMode] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
   const [loadingTicket, setLoadingTicket] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -35,99 +45,115 @@ export default function CheckinForm({
   const [message, setMessage] = useState('');
   const [ticketId, setTicketId] = useState('');
 
- useEffect(() => {
-  async function loadTicket() {
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const isSapHit = source === 'SAP' && plateLocked;
 
-      const response = await fetch(
-        `${apiUrl}/qr/ticket/${token}`,
-      );
+  useEffect(() => {
+    async function loadTicket() {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-      if (response.status === 410) {
-        try {
-          const displayResponse = await fetch(
-            `${apiUrl}/qr/display/${gateId}`,
-          );
+        const response = await fetch(
+          `${apiUrl}/qr/ticket/${token}`,
+        );
 
-          if (!displayResponse.ok) {
-            throw new Error(
-              'Unable to load check-in information.',
+        if (response.status === 410) {
+          try {
+            const displayResponse = await fetch(
+              `${apiUrl}/qr/display/${gateId}`,
+            );
+
+            if (!displayResponse.ok) {
+              throw new Error(
+                'Unable to load check-in information.',
+              );
+            }
+
+            const display =
+              await displayResponse.json();
+
+            setPlate(display.plate ?? '');
+            setName('');
+            setPhone('');
+            setPreferredContactMethod('');
+            setPlateLocked(false);
+            setSource('GENERIC');
+            setEditMode(false);
+            setFallbackMode(true);
+            setMessage(
+              'Your QR ticket has expired. Please complete the check-in manually.',
+            );
+          } catch {
+            setFallbackMode(false);
+            setMessage(
+              'Your QR ticket has expired, but the check-in information could not be loaded. Please try again.',
             );
           }
 
-          const display = await displayResponse.json();
-
-          setPlate(display.plate ?? '');
-          setName('');
-          setPhone('');
-          setPlateLocked(false);
-          setSource('GENERIC');
-          setFallbackMode(true);
-          setMessage(
-            'Your QR ticket has expired. Please complete the check-in manually.',
-          );
-        } catch {
-          setFallbackMode(false);
-          setMessage(
-            'Your QR ticket has expired, but the check-in information could not be loaded. Please try again.',
-          );
+          return;
         }
 
-        return;
-      }
+        if (!response.ok) {
+          let errorMessage =
+            'Unable to load check-in information.';
 
-      if (!response.ok) {
-        let errorMessage =
-          'Unable to load check-in information.';
+          try {
+            const data = await response.json();
 
-        try {
-          const data = await response.json();
-
-          if (typeof data.message === 'string') {
-            errorMessage = data.message;
+            if (typeof data.message === 'string') {
+              errorMessage = data.message;
+            }
+          } catch {
+            // Ignore invalid error response body.
           }
-        } catch {
-          // Ignore invalid error response body.
+
+          throw new Error(errorMessage);
         }
 
-        throw new Error(errorMessage);
+        const ticket: TicketData =
+          await response.json();
+
+        setPlate(ticket.plate ?? '');
+        setName(ticket.name ?? '');
+        setPhone(ticket.phone ?? '');
+        setPreferredContactMethod('');
+        setPlateLocked(ticket.plateLocked);
+        setSource(ticket.source);
+        setEditMode(false);
+        setFallbackMode(false);
+        setMessage('');
+      } catch (error) {
+        setFallbackMode(false);
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : 'Unable to load check-in information.',
+        );
+      } finally {
+        setLoadingTicket(false);
       }
-
-      const ticket: TicketData = await response.json();
-
-      setPlate(ticket.plate ?? '');
-      setName(ticket.name ?? '');
-      setPhone(ticket.phone ?? '');
-      setPlateLocked(ticket.plateLocked);
-      setSource(ticket.source);
-      setFallbackMode(false);
-      setMessage('');
-    } catch (error) {
-      setFallbackMode(false);
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : 'Unable to load check-in information.',
-      );
-    } finally {
-      setLoadingTicket(false);
     }
-  }
 
-  loadTicket();
-}, [token, gateId]);
+    loadTicket();
+  }, [token, gateId]);
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
 
+    if (!preferredContactMethod) {
+      setMessage(
+        'Please select how you would like to be contacted when your slot is available.',
+      );
+      return;
+    }
+
     setLoading(true);
     setMessage('');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+      const apiUrl =
+        process.env.NEXT_PUBLIC_BACKEND_URL;
 
       const endpoint = fallbackMode
         ? `${apiUrl}/checkin/submit`
@@ -140,12 +166,14 @@ export default function CheckinForm({
             name,
             phone,
             source: 'QR',
+            preferredContactMethod,
           }
         : {
             token,
             plate,
             name,
             phone,
+            preferredContactMethod,
           };
 
       const response = await fetch(endpoint, {
@@ -215,7 +243,7 @@ export default function CheckinForm({
             marginBottom: '20px',
           }}
         >
-          ✓
+          âœ“
         </div>
 
         <h2
@@ -300,8 +328,8 @@ export default function CheckinForm({
           }}
         >
           {source === 'SAP'
-            ? 'Vehicle recognized — information loaded from SAP.'
-            : 'Vehicle detected — please complete your information.'}
+            ? 'Vehicle recognized â€” information loaded from SAP.'
+            : 'Vehicle detected â€” please complete your information.'}
         </div>
       )}
 
@@ -323,7 +351,9 @@ export default function CheckinForm({
           id="plate"
           type="text"
           value={plate}
-          onChange={(event) => setPlate(event.target.value)}
+          onChange={(event) =>
+            setPlate(event.target.value)
+          }
           placeholder="Enter plate number"
           required
           readOnly={plateLocked}
@@ -371,9 +401,12 @@ export default function CheckinForm({
           id="name"
           type="text"
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) =>
+            setName(event.target.value)
+          }
           placeholder="Enter your name"
           required
+          readOnly={isSapHit && !editMode}
           style={{
             width: '100%',
             boxSizing: 'border-box',
@@ -381,11 +414,15 @@ export default function CheckinForm({
             border: '1px solid #ddd',
             borderRadius: '10px',
             fontSize: '15px',
+            backgroundColor:
+              isSapHit && !editMode
+                ? '#f3f3f3'
+                : '#fff',
           }}
         />
       </div>
 
-      <div style={{ marginBottom: '22px' }}>
+      <div style={{ marginBottom: '18px' }}>
         <label
           htmlFor="phone"
           style={{
@@ -403,8 +440,49 @@ export default function CheckinForm({
           id="phone"
           type="tel"
           value={phone}
-          onChange={(event) => setPhone(event.target.value)}
+          onChange={(event) =>
+            setPhone(event.target.value)
+          }
           placeholder="Enter phone number"
+          required
+          readOnly={isSapHit && !editMode}
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            padding: '13px',
+            border: '1px solid #ddd',
+            borderRadius: '10px',
+            fontSize: '15px',
+            backgroundColor:
+              isSapHit && !editMode
+                ? '#f3f3f3'
+                : '#fff',
+          }}
+        />
+      </div>
+
+      <div style={{ marginBottom: '22px' }}>
+        <label
+          htmlFor="preferredContactMethod"
+          style={{
+            display: 'block',
+            marginBottom: '7px',
+            fontSize: '14px',
+            fontWeight: '600',
+            color: '#333',
+          }}
+        >
+          Preferred Contact Method
+        </label>
+
+        <select
+          id="preferredContactMethod"
+          value={preferredContactMethod}
+          onChange={(event) =>
+            setPreferredContactMethod(
+              event.target.value as ContactMethod,
+            )
+          }
           required
           style={{
             width: '100%',
@@ -413,30 +491,84 @@ export default function CheckinForm({
             border: '1px solid #ddd',
             borderRadius: '10px',
             fontSize: '15px',
+            backgroundColor: '#fff',
           }}
-        />
+        >
+          <option value="" disabled>
+            Select how you want to be contacted
+          </option>
+
+          <option value="SMS">
+            SMS
+          </option>
+
+          <option value="WHATSAPP">
+            WhatsApp
+          </option>
+
+          <option value="ELSAAYER_APP">
+            ElSaayer App
+          </option>
+
+          <option value="CALLING_AGENT">
+            Calling Agent
+          </option>
+        </select>
       </div>
 
-      <button
-        type="submit"
-        disabled={loading}
+      <div
         style={{
-          width: '100%',
-          padding: '14px',
-          border: 'none',
-          borderRadius: '10px',
-          backgroundColor: '#111',
-          color: '#fff',
-          fontSize: '16px',
-          fontWeight: '600',
-          cursor: loading
-            ? 'not-allowed'
-            : 'pointer',
-          opacity: loading ? 0.7 : 1,
+          display: 'flex',
+          gap: '10px',
         }}
       >
-        {loading ? 'Checking in...' : 'Check In'}
-      </button>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            flex: 1,
+            padding: '14px',
+            border: 'none',
+            borderRadius: '10px',
+            backgroundColor: '#111',
+            color: '#fff',
+            fontSize: '16px',
+            fontWeight: '600',
+            cursor: loading
+              ? 'not-allowed'
+              : 'pointer',
+            opacity: loading ? 0.7 : 1,
+          }}
+        >
+          {loading
+            ? 'Checking in...'
+            : 'Check In'}
+        </button>
+
+        {isSapHit && !editMode && (
+          <button
+            type="button"
+            onClick={() => setEditMode(true)}
+            disabled={loading}
+            style={{
+              flex: 1,
+              padding: '14px',
+              border: '1px solid #111',
+              borderRadius: '10px',
+              backgroundColor: '#fff',
+              color: '#111',
+              fontSize: '16px',
+              fontWeight: '600',
+              cursor: loading
+                ? 'not-allowed'
+                : 'pointer',
+              opacity: loading ? 0.7 : 1,
+            }}
+          >
+            Edit
+          </button>
+        )}
+      </div>
 
       {message && (
         <div

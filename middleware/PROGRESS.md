@@ -16,6 +16,7 @@ within `middleware/src/ai/**`.
 | **LLM generic** | `ILlmAdapter` | Existing skeleton untouched (`StubLlmAdapter`) | — |
 | **Config** | `AiConfigService` | Implemented with env defaults & validation | `config/ai-config.service.spec.ts` |
 | **Wiring** | `AiModule` | Registered alongside existing stubs | `app.module.ts` |
+| **Kiosk Flow** | `KioskService` | Integrated (`CONTACT_METHOD_ASKING` gate + retries) | `kiosk/kiosk.service.spec.ts` |
 
 ---
 
@@ -23,24 +24,23 @@ within `middleware/src/ai/**`.
 
 *(Updated automatically after running `npm test` inside `middleware/`)*
 
-### Real test output (2026-09-09)
+### Real test output (2026-09-19)
 
 Ran via: `cd middleware && npm test`
-Node version: v22.22.3
-NestJS: 10.4.15
 Jest: 29.7.0
 
 ```
-PASS src/ai/config/ai-config.service.spec.ts
 PASS src/ai/nlu/nlu-rules.adapter.spec.ts
+PASS src/ai/config/ai-config.service.spec.ts
+PASS src/kiosk/kiosk.service.spec.ts
 PASS src/ai/stt/elevenlabs-stt.adapter.spec.ts
 PASS src/ai/tts/elevenlabs-tts.adapter.spec.ts
-PASS src/ai/llm/llm-nlu.adapter.spec.ts
 PASS src/qr/qr.service.spec.ts
+PASS src/ai/llm/llm-nlu.adapter.spec.ts
 
-Test Suites: 6 passed, 6 total
-Tests:       97 passed, 97 total
+Test Suites: 7 passed, 7 total
+Tests:       154 passed, 154 total
 Snapshots:   0 total
-Time:        5.481 s
+Time:        6.843 s, estimated 7 s
 Ran all test suites.
 ```
