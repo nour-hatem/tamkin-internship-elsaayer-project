@@ -8,6 +8,7 @@ import { ContactService } from './contact.service';
 
 export class AcknowledgeDto {
   ticketId: string;
+  slotId:string
 }
 
 @Controller('queue')
@@ -19,7 +20,7 @@ export class ContactController {
   @Post('acknowledge')
   acknowledge(@Body() dto: AcknowledgeDto) {
     return this.contactService.acknowledge(
-      dto.ticketId,
+      dto.ticketId,dto.slotId
     );
   }
 }

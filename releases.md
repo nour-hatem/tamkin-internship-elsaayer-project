@@ -1,5 +1,37 @@
 # Releases
 
+## [2026-09-22] feat(queue-contact): wire QueueService to ContactService for candidate notification
+
+**By:** Sara
+
+**Requested:** Connect `QueueService`'s candidate selection to `ContactService`, so a customer is actually notified when chosen from the queue, and the slot/ticket/rotation state stays in sync with the contact outcome.
+
+**Changes:**
+
+- Injected `ContactService` into `QueueService`.
+- Updated `callNextCandidate()` to call `ContactService.notify(...)` after marking a ticket `CALLED`, passing `ticketId`, `slotId`, `phone`, `name`, and `preferredContactMethod`.
+- Kept `slotId` as the correlation key passed through to `ContactService`, so outcome events can be routed back to the correct rotation.
+- Confirmed existing `@OnEvent(EVENTS.CONTACT_ACK)` / `@OnEvent(EVENTS.CONTACT_TIMEOUT)` handlers in `QueueService` remain the single source of truth for:
+  - Marking the ticket `ACKNOWLEDGED` and the slot `OCCUPIED` on ack.
+  - Resetting the ticket to `WAITING` and rotating to the next candidate on timeout.
+  - Deleting the rotation once a slot is filled.
+- No direct dependency from `ContactService` back to `QueueService` — communication stays one-directional via events, avoiding circular DI.
+
+**Notification Flow:**
+
+Queue selects candidate → `QueueService.callNextCandidate` → `ContactService.notify(ticketId, slotId, phone, preferredContactMethod)` → Contact Adapter → customer notified
+
+**Outcome Flow:**
+
+`ContactService` emits `CONTACT_ACK` or `CONTACT_TIMEOUT` (with `ticketId` + `slotId`) → `QueueService`'s `@OnEvent` handlers update slot/ticket/rotation state accordingly
+
+**Notes:**
+
+- `QueueService` owns all slot, ticket, and rotation state — `ContactService` has no visibility into queues or slots, only ticket-level contact outcomes.
+- This keeps `ContactService` and `QueueService` decoupled from each other in code, connected only through the event emitter.
+- Still to confirm: error handling if `contactService.notify()` throws (e.g. bad phone number) — currently not caught, so a failed `notify()` call would leave the ticket stuck in `CALLED` rather than rotating to the next candidate.
+
+
 ## [2026-09-20] feat(queue-contact): add customer acknowledgment flow
 
 **By:** Sara
