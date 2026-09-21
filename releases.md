@@ -1,5 +1,61 @@
 # Releases
 
+## [2026-09-20] feat(queue-contact): add customer acknowledgment flow
+
+**By:** Sara
+
+**Requested:** Implement the customer acknowledgment flow after contacting a customer, with a 30-second response window.
+
+**Changes:**
+
+- Added pending-contact tracking in `ContactService`.
+- Added a 30-second acknowledgment timeout after a notification is successfully sent.
+- Added `acknowledge(ticketId)` handling for customer approval.
+- Added the `POST /queue/acknowledge` endpoint.
+- Added acknowledgment handling using the ticket ID.
+- If the customer acknowledges within 30 seconds, the result becomes `ACKNOWLEDGED`.
+- If no acknowledgment is received within 30 seconds, the result becomes `NO_RESPONSE`.
+- Kept queue rotation outside `ContactService`; after `NO_RESPONSE`, Queue Core remains responsible for selecting the next customer.
+
+**Acknowledgment Flow:**
+
+Queue selects customer → ContactService → Contact Adapter → `SENT` → Start 30-second timer → Customer acknowledges → `ACKNOWLEDGED`
+
+If there is no response:
+
+Queue selects customer → ContactService → Contact Adapter → `SENT` → 30 seconds → `NO_RESPONSE` → Queue Core handles rotation
+
+**Notes:**
+
+- The 30-second timer is currently implemented using an in-memory timer for MVP simulation.
+- Contact adapters do not wait for the 30-second period; they only simulate sending.
+- Customer acknowledgment is simulated through the `/queue/acknowledge` endpoint.
+- Queue Core remains responsible for rotation after `NO_RESPONSE`.
+
+
+## [2026-09-20] feat(queue-contact): add simulated customer contact adapters
+
+**By:** Sara
+
+**Requested:** Implement the Customer Contact layer for the Queue module using a common adapter abstraction and simulated contact methods.
+
+**Changes:**
+
+- Added the `IContactAdapter` abstraction for customer contact methods.
+- Added simulated contact adapters for SMS, WhatsApp, Elsaayer App, and Calling Agent.
+- Added the `ContactMethod` type with `SMS`, `WHATSAPP`, `ELSAAYER_APP`, and `CALLING_AGENT`.
+- Added the `Notification` structure containing `ticketId`, `phone`, `name`, and `message`.
+- Added the `ContactResult` structure containing `ticketId`, `method`, and contact status.
+- Updated the Calling Agent adapter to return the correct `CALLING_AGENT` method and ticket ID.
+- Added `ContactService` logic to select the appropriate adapter based on the customer's `preferredContactMethod`.
+- Kept all contact providers simulated for the MVP so they can later be replaced with real services.
+
+**Notes:**
+
+- The customer's phone number is taken from the `QueueTicket` and passed to the selected contact adapter.
+- Each adapter simulates sending the notification and returns a `SENT` result.
+- The adapter abstraction keeps the Queue Contact logic independent from the actual contact provider.
+
 ## [2026-09-20 01:27] fix(kiosk): add temporary contact method fallback
 
 **By:** @RahmaMohamedFarouk06

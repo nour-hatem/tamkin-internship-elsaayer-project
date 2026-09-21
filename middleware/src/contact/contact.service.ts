@@ -10,7 +10,7 @@ import { ElsaayerAppAdapter } from './adapters/elsayerApp.adapter';
 import { CallingAgentAdapter } from './adapters/callingAgent.adapter';
 import { QueueTicket } from 'src/queue/queue.service';
 import { ContactResult } from '@common/dtos/contact-result.dto';
-import { Notification } from '@common/dtos/notidication.dto';
+import { Notification } from '@common/dtos/notification.dto';
 
 
 
@@ -44,8 +44,8 @@ export class ContactService {
     };
   }
 
-  async notify(ticket: QueueTicket): Promise<ContactResult> {
-    const method = ticket.preferredContactMethod;
+  async notify({ticketId,slotId,phone,name ,preferredContactMethod}:{ticketId:string,slotId:string,phone:string,name:string ,preferredContactMethod:ContactMethod}): Promise<ContactResult> {
+    const method = preferredContactMethod;
 
     const adapter = this.adapters[method];
 
@@ -56,9 +56,9 @@ export class ContactService {
     }
 
     const notification: Notification = {
-      ticketId: ticket.ticketId,
-      phone: ticket.phone,
-      name: ticket.name,
+      ticketId,
+      phone,
+      name,
       message: 'Your slot is available.',
     };
 
@@ -68,7 +68,7 @@ export class ContactService {
     // Start the 30-second ACK timer
     if (result.status === 'SENT') {
       this.startAcknowledgmentTimeout(
-        ticket.ticketId,
+        ticketId,
         method,
       );
     }

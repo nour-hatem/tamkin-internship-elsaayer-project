@@ -4,6 +4,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 //import { ContactMethod } from '../ai';
 import { EVENTS } from '../common/events';
 import type { ContactOutcomePayload } from '../common/typed-event-emitter.service';
+import { ContactService } from 'src/contact/contact.service';
 
 export type QueueTicketStatus =
   'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED';
@@ -42,6 +43,8 @@ export class QueueService {
   private readonly logger = new Logger(QueueService.name);
 
   private readonly MAX_CONTACT_ATTEMPTS = 3;
+
+  private readonly contactService:ContactService
 
   private tickets: QueueTicket[] = [];
   private slots: QueueSlot[] = [];
@@ -233,7 +236,16 @@ export class QueueService {
       `[QueueService] Contact attempt ${rotation.attempts}/${this.MAX_CONTACT_ATTEMPTS} for Queue #${ticket.queueNumber}`,
     );
 
+     await this.contactService.notify({
+    ticketId: ticket.ticketId,
+    slotId,
+    phone: ticket.phone,
+    name: ticket.name,
+    preferredContactMethod: ticket.preferredContactMethod,
+  });
     this.logger.log(`[QueueService] Contact method: ${ticket.preferredContactMethod}`);
+
+
 
     return ticket;
   }
