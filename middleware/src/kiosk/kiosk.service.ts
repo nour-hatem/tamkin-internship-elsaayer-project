@@ -281,7 +281,7 @@ export class KioskService {
 
   
 
-  const audio=this.ttsAdapter.synthesize(message)
+  const audio=await this.ttsAdapter.synthesize(message)
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.CONFIRMING_PHONE,
