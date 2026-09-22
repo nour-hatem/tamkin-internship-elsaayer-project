@@ -9,6 +9,7 @@ import { AiModule, ElevenLabsSttAdapter, ElevenLabsTtsAdapter, LlmNluAdapter, Nl
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypedEventEmitter } from '@common/typed-event-emitter.service';
 import { StubGateAdapter } from 'src/gate/adapters/stub-gate.adapter';
+import { KioskRedisService } from './kiosk.redis';
 
 @Module({
   imports: [CheckInModule, RedisModule,AiModule,ConfigModule,],
@@ -28,7 +29,8 @@ import { StubGateAdapter } from 'src/gate/adapters/stub-gate.adapter';
       provide:'IGateAdapter',
       useClass:StubGateAdapter
     },
-    TypedEventEmitter
+    TypedEventEmitter,
+    KioskRedisService
   ],
   exports: [KioskService, SessionRepository, SessionService],
 })
