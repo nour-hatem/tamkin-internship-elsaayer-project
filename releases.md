@@ -1,5 +1,30 @@
 # Releases
 
+## [2026-09-22] feat(kiosk-i18n): full English/Arabic localization, driven by env language setting
+
+**By:** [your name]
+
+**Requested:** Make every piece of kiosk UI text — buttons, keyboard, placeholders, labels — switch between English and Arabic based on a language setting, matching whichever language the backend is now generating spoken/message content in.
+
+**Changes:**
+
+- Added `NEXT_PUBLIC_APP_LANGUAGE` env var (`en` | `ar`, defaults to `ar`) as the single source of truth for kiosk display language.
+- Added a `STRINGS` dictionary covering every frontend-owned string: brand/gate labels, start overlay text, Yes/No confirmation labels, the four contact-method button labels, name/phone placeholders, keyboard control labels (space/clear/backspace) and their aria-labels, and the Send button.
+- Added a parallel English (QWERTY) on-screen keyboard, swapped in for name entry alongside the existing Arabic layout based on the same language setting.
+- Switched the whole page's `dir` attribute (and per-input text alignment) between `rtl` and `ltr` based on the same setting, instead of the previous hardcoded `dir="rtl"` throughout.
+- Refactored the name/phone keyboard handlers (backspace, clear, space) to call dedicated functions instead of comparing the pressed key's display text — so keyboard labels can change per language without touching input logic.
+- Backend (`KioskService`) now generates `message` (and its TTS audio) in the matching language as well, so the spoken/on-screen prompt text and the kiosk's own UI text stay consistent end-to-end.
+
+**Kept language-independent (protocol, not display):**
+
+- The Yes/No confirmation still emits a fixed value to the backend `INPUT` payload, decoupled from the displayed button label.
+- The contact-method buttons still emit the `ContactMethod` enum key (e.g. `'SMS'`), not the localized label.
+
+**Notes:**
+
+- Setting `NEXT_PUBLIC_APP_LANGUAGE` requires a rebuild/restart to take effect, since it's inlined at build time in a Next.js client component.
+- Frontend and backend language settings are two separate env values today — worth confirming both are kept in sync per environment, or consolidating into one shared config, to avoid a kiosk that speaks Arabic but shows English buttons (or vice versa).
+
 ## [2026-09-22] feat(kiosk-ui): contact-method buttons + voice-mode guard for CONTACT_METHOD_ASKING
 
 **By:** Sara

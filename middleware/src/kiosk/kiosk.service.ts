@@ -21,6 +21,7 @@ import { CheckInService } from 'src/checkin/checkin.service';
 @Injectable()
 export class KioskService {
   private readonly logger = new Logger(KioskService.name);
+  private readonly lang=process.env.language
 
   constructor(
     private readonly configService: ConfigService,
@@ -42,6 +43,7 @@ export class KioskService {
   /**
    * Starts the kiosk flow after SAP finishes looking up the plate.
    */
+
   @OnEvent(EVENTS.SAP_LOOKUP_RESULT)
   async handleSapLookupResult(payload: SapLookupResultDto) {
     const activeApproach = this.configService.get<string>('ACTIVE_APPROACH', 'voice');
@@ -266,8 +268,14 @@ export class KioskService {
    * to the phone-confirmation state.
    */
   private async greeting(session: KioskSession) {
-    const message =
-      `أهلاً بك  ${session.customerName}  ` + `رقمك هو  ${session.phone}  ` + `فقط قل نعم او لا`;
+
+    let message
+    if(this.lang==="Arabic")
+    message =
+      `أهلاً بك  ${session.customerName}  ` + `رقمك هو  ${session.phone}  `;
+    else {
+      message=`Hi ${session.customerName}`+`Your number is ${session.phone}`  
+    }
 
     const audio = await this.ttsAdapter.synthesize(message);
 
@@ -286,7 +294,14 @@ export class KioskService {
   }
 
   private async askForName(session: KioskSession) {
-    const message = 'أهلاً بك، من فضلك أدخل اسمك';
+    let message
+    if(this.lang==="Arabic")
+     message = 'أهلاً بك، من فضلك أدخل اسمك';
+    else 
+      message="Hello, please enter your name"
+
+
+
 
     const audio = await this.ttsAdapter.synthesize(message);
 
@@ -351,7 +366,11 @@ export class KioskService {
    * Asks the customer for their phone number.
    */
   private async askForPhone(session: KioskSession) {
-    const message = 'ما هو رقمك؟';
+    let message
+    if(message==="Arabic")
+     message = 'ما هو رقمك؟';
+    else 
+      message="What is your number?"
 
     const audio = await this.ttsAdapter.synthesize(message);
 
@@ -370,7 +389,11 @@ export class KioskService {
   }
 
   private async showConfirmationButtons(session: KioskSession) {
-    const message = 'من فضلك اضغط على الإجابة';
+    let message
+    if(message==="Arabic")
+     message = 'من فضلك اضغط على الإجابة';
+    else
+      message="Please press on the suitable answer"
 
     const audio = await this.ttsAdapter.synthesize(message);
 
@@ -389,7 +412,12 @@ export class KioskService {
   }
 
   private async showPhoneKeyboard(session: KioskSession) {
-    const message = 'من فضلك أدخل رقم هاتفك';
+    let message
+    if(message==="Arabic")
+     message = 'من فضلك أدخل رقم هاتفك';
+    else {
+      message="Please enter your number"
+    }
 
     const audio = await this.ttsAdapter.synthesize(message);
 
@@ -408,7 +436,12 @@ export class KioskService {
   }
 
   private async askForContactMethod(session: KioskSession) {
-    const message = 'كيف تفضل أن نتواصل معك؟ رسالة نصية، واتساب، تطبيق الساير، أم اتصال؟';
+    let message
+    if(message==="Arabic")
+      message = 'كيف تفضل أن نتواصل معك؟ رسالة نصية، واتساب، تطبيق الساير، أم اتصال؟';
+    else {
+      message="How do you prefer to be contaced? SMS,WHATSAPP,SAYER APP OR CALL"
+    }
 
     const audio = await this.ttsAdapter.synthesize(message);
 
@@ -478,7 +511,11 @@ export class KioskService {
   }
 
   private async showContactMethodButtons(session: KioskSession) {
-    const message = 'من فضلك اختر طريقة التواصل';
+    let message
+    if(message==="Arabic")
+      message = 'من فضلك اختر طريقة التواصل';
+    else 
+      message="Please select the contact method"
 
     const audio = await this.ttsAdapter.synthesize(message);
 
