@@ -1,8 +1,36 @@
 # Releases
 
+## [2026-09-22] feat(kiosk-redis): cache static TTS prompts in Redis (7-day TTL)
+
+**By:** Sara
+
+**Requested:** Cache the audio for the kiosk's fixed (non-interpolated) voice prompts in Redis, keyed uniquely per message with a language suffix, so repeated requests reuse the cached TTS audio instead of re-synthesizing it every time.
+
+**Changes:**
+
+- Added `kiosk.redis.ts` — `KioskRedisService`, wrapping the existing `RedisService` client with kiosk-specific caching:
+  - `KioskMessageKey` enum names the 6 static prompts: `NAME_ASKING`, `PHONE_ASKING`, `CONFIRMATION_BUTTONS`, `PHONE_KEYBOARD`, `CONTACT_METHOD_ASKING`, `CONTACT_METHOD_BUTTONS`.
+  - Redis key format: `kiosk:tts:{message-key}-{ar|en}` (e.g. `kiosk:tts:name-asking-ar`).
+  - `getCachedAudio` / `setCachedAudio` use `getBuffer` / `set` (binary-safe) rather than the string-based `get`, since TTS output is audio, not text.
+  - `setCachedAudio` sets a 7-day expiry (`EX`); an unused entry ages out and regenerates automatically on the next request.
+  - `getOrSynthesize(messageKey, lang, synthesize)` — the single entry point used everywhere: cache hit returns immediately, cache miss calls the TTS adapter once and caches the result.
+- Wired `KioskRedisService` into `KioskService`'s 6 static-prompt methods (`askForName`, `askForPhone`, `showConfirmationButtons`, `showPhoneKeyboard`, `askForContactMethod`, `showContactMethodButtons`), replacing the direct `ttsAdapter.synthesize(message)` calls with `kioskRedisService.getOrSynthesize(...)`.
+- `greeting()` intentionally left uncached — it embeds `session.customerName` / `session.phone`, so it's different per session and caching it would only fill Redis with one-off entries that are never reused.
+
+**Bugs fixed while wiring this in (found during implementation, not requested but necessary):**
+
+- `this.lang` was compared against `"ar"` in one method and `"Arabic"` in another — only one could ever match, so half the prompts were silently stuck in one language regardless of the env var. Normalized to a single `this.lang: 'ar' | 'en'`, derived once in the constructor.
+- 5 methods (`askForPhone`, `showConfirmationButtons`, `showPhoneKeyboard`, `askForContactMethod`, `showContactMethodButtons`) checked `if (message === "Arabic")` against the just-declared, still-`undefined` `message` variable instead of `this.lang` — always `false`, so these 5 prompts always fell through to English. Fixed to read `this.lang` consistently.
+
+**Notes:**
+
+- Sizing: bounded at 12 keys total (6 messages × 2 languages) — this cache can't grow unbounded the way a per-session or per-user cache would.
+- If prompt wording is edited later without renaming the `KioskMessageKey`, the old cached audio keeps being served until the 7-day TTL expires. Content-hashing the key (so a text change produces a new key automatically) was discussed as a more robust follow-up if that risk matters here.
+- `KioskRedisService` needs `RedisService` available to `KioskModule` (either export it from wherever it's currently provided, or import `RedisModule` into `KioskModule`), and needs to be added to `KioskModule`'s `providers`.
+
 ## [2026-09-22] feat(kiosk-i18n): full English/Arabic localization, driven by env language setting
 
-**By:** [your name]
+**By:** Sara
 
 **Requested:** Make every piece of kiosk UI text — buttons, keyboard, placeholders, labels — switch between English and Arabic based on a language setting, matching whichever language the backend is now generating spoken/message content in.
 
