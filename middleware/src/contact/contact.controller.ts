@@ -5,10 +5,16 @@ import {
 } from '@nestjs/common';
 
 import { ContactService } from './contact.service';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 export class AcknowledgeDto {
+  @IsString()
+  @IsNotEmpty()
   ticketId: string;
-  slotId:string
+
+  @IsString()
+  @IsNotEmpty()
+  slotId: string;
 }
 
 @Controller('queue')
