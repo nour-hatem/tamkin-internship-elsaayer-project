@@ -1,5 +1,5 @@
 import { ContactResult } from "@common/dtos/contact-result.dto";
-import { Notification } from "@common/dtos/notidication.dto";
+import { Notification } from "@common/dtos/notification.dto";
 
 
 export interface IContactAdapter {

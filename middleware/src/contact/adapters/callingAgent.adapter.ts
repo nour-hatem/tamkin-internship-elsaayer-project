@@ -1,6 +1,6 @@
 import { ContactResult } from '@common/dtos/contact-result.dto';
 import { IContactAdapter } from '../ports/contact.port';
-import { Notification } from '@common/dtos/notidication.dto';
+import { Notification } from '@common/dtos/notification.dto';
 
 export class CallingAgentAdapter implements IContactAdapter {
   async send(notification: Notification): Promise<ContactResult> {

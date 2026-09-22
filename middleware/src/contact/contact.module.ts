@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ContactService } from './contact.service';
-import { SmsAdapter } from './adapters/sms.adapter';
+import { SmsAdapter } from './adapters/SMS.adapter';
 import { whatsappAdapter } from './adapters/whatsapp.adapter';
 import { ElsaayerAppAdapter } from './adapters/elsayerApp.adapter';
 import { CallingAgentAdapter } from './adapters/callingAgent.adapter';
