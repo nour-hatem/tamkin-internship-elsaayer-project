@@ -1,0 +1,8 @@
+git stash -u ==> for stashing our work until we git pull from origin dev
+git pull or git pull origin dev --> to git the latest code from dev
+git stash pop --> to unstash our work
+git checkout -b --> create new branch and checkout to this brach to commit our work
+git add . 
+git commit -M
+git push 
+

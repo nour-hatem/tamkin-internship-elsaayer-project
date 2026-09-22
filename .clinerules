@@ -1,0 +1,34 @@
+# Release Logging Rule
+
+After completing ANY code change (feature, fix, refactor, config change,
+dependency bump, etc.), append a new entry to `releases.md` at the TOP of
+the file (directly below the `# Releases` header), using this exact format:
+
+## [YYYY-MM-DD HH:MM] Short imperative title of the change
+
+**By:** @cline
+
+**Requested:** One sentence describing what was asked for, in the user's
+own intent — not just a restatement of the diff.
+
+**Changes:**
+- `path/to/file.ext` — what changed and why. Reference specific
+  functions, props, or behavior, not just "updated file".
+- `path/to/other-file.ext` — one bullet per file, or per logical
+  group of files if several touched the same concern.
+
+**Notes:** Optional. Caveats, edge cases, follow-ups, dead code found, or
+decisions the user should know about that aren't obvious from the diff.
+
+## Rules
+- Always insert the newest entry at the top of the file (reverse
+  chronological order) — never append to the bottom.
+- Include both date AND time in the header timestamp, since multiple
+  entries can land on the same day.
+- Do this for every change, no matter how small — a one-line fix still
+  gets an entry.
+- Do this automatically as the last step of every task. Do not ask for
+  permission and do not skip it.
+- If unsure of the current date/time, ask the user rather than guessing.
+- Never remove or rewrite older entries in `releases.md` — this file is
+  an append-only historical log.
