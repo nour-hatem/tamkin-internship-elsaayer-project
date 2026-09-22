@@ -1,5 +1,29 @@
 # Releases
 
+## [2026-09-22] feat(kiosk-ui): contact-method buttons + voice-mode guard for CONTACT_METHOD_ASKING
+
+**By:** Sara
+
+**Requested:** Match the existing phone-asking UX pattern (2 voice attempts, then a manual fallback UI) for the `CONTACT_METHOD_ASKING` state, and make sure the kiosk never opens the mic while a button/keyboard UI is showing.
+
+**Changes:**
+
+- Added a `showContactMethodButtons` UI state and a 4-button picker (SMS / WhatsApp / تطبيق الساير / اتصال هاتفي), rendered from the shared `ContactMethod` enum.
+- Added `sendContactMethod(method)`, mirroring `sendConfirmation`, which emits `INPUT` with `state: 'CONTACT_METHOD_ASKING'` and the chosen method as `text`.
+- Updated the OUTPUT listener's UI branch so `inputMode: 'BUTTONS'` renders the contact-method picker only when `state === 'CONTACT_METHOD_ASKING'`, and falls back to the existing Yes/No confirmation buttons for every other `BUTTONS` state (e.g. `CONFIRMING_PHONE`).
+- Added a defensive guard inside `startRecording()` itself: if `inputModeRef.current !== 'VOICE'` (or `textInputStateRef.current` is true), it logs why and returns without touching the microphone — regardless of which call site triggered it.
+- Added `showContactMethodButtons` to `isKeyboardActive`, so the avatar hides consistently with the other manual-input UIs.
+
+**Behavior now matches phone-asking exactly:**
+
+1st & 2nd `CONTACT_METHOD_ASKING` attempt → backend sends `inputMode: VOICE` → mic opens normally.
+3rd attempt → backend sends `inputMode: BUTTONS` → mic never opens, kiosk shows the 4 contact-method buttons instead of voice/Yes-No.
+
+**Notes:**
+
+- No backend changes required — `KioskService.handleContactMethodInput` already implemented the same 2-voice-attempts-then-fallback pattern as `handlePhoneInput`.
+- Bug caught and fixed during implementation: an earlier draft toggled the button UI off `state === 'CONTACT_METHOD_ASKING'` alone, which would have skipped both voice attempts entirely. Fixed to key strictly off `inputMode`, same as every other state.
+
 ## [2026-09-22] feat(queue-contact): wire QueueService to ContactService for candidate notification
 
 **By:** Sara

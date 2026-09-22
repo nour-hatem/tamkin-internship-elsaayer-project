@@ -44,13 +44,15 @@ export class QueueService {
 
   private readonly MAX_CONTACT_ATTEMPTS = 3;
 
-  private readonly contactService:ContactService
+  
 
   private tickets: QueueTicket[] = [];
   private slots: QueueSlot[] = [];
   private rotations = new Map<string, SlotRotationState>();
   private ticketCounter = 1000;
   private queueNumberCounter = 0;
+
+  constructor(private readonly contactService: ContactService) {}
 
   async enqueue(
     gateId: string,

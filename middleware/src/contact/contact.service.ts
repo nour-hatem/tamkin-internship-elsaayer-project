@@ -115,9 +115,11 @@ private startAcknowledgmentTimeout(
   { ticketId, slotId }: { ticketId: string; slotId: string },
   method: ContactMethod,
 ): void {
+  console.log("In start ack")
   const timer = setTimeout(() => {
     this.handleNoResponse({ ticketId, slotId });
   }, 30_000);
+
 
   this.pendingContacts.set(ticketId, {
     ticketId,
