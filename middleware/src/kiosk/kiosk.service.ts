@@ -17,6 +17,7 @@ import { KioskInputDto } from './interfaces/KioskInputDto';
 import { ISapAdapter } from 'src/sap/ports/sap.port';
 import { IGateAdapter } from 'src/gate/ports/gate.port';
 import { CheckInService } from 'src/checkin/checkin.service';
+import { KioskMessageKey, KioskRedisService } from './kiosk.redis';
 
 @Injectable()
 export class KioskService {
@@ -38,6 +39,7 @@ export class KioskService {
     @Inject('IGateAdapter')
     private readonly gateAdapter: IGateAdapter,
     private readonly eventEmitter: EventEmitter2,
+    private readonly kioskRedisService:KioskRedisService
   ) {}
 
   /**
@@ -270,14 +272,16 @@ export class KioskService {
   private async greeting(session: KioskSession) {
 
     let message
-    if(this.lang==="Arabic")
+    if(this.lang==="ar")
     message =
       `أهلاً بك  ${session.customerName}  ` + `رقمك هو  ${session.phone}  `;
     else {
       message=`Hi ${session.customerName}`+`Your number is ${session.phone}`  
     }
 
-    const audio = await this.ttsAdapter.synthesize(message);
+  
+
+  const audio=this.ttsAdapter.synthesize(message)
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.CONFIRMING_PHONE,
@@ -295,15 +299,16 @@ export class KioskService {
 
   private async askForName(session: KioskSession) {
     let message
-    if(this.lang==="Arabic")
+    if(this.lang==="ar")
      message = 'أهلاً بك، من فضلك أدخل اسمك';
     else 
       message="Hello, please enter your name"
 
-
-
-
-    const audio = await this.ttsAdapter.synthesize(message);
+     const audio = await this.kioskRedisService.getOrSynthesize(
+    KioskMessageKey.NAME_ASKING,
+    this.lang,
+    () => this.ttsAdapter.synthesize(message),
+  );
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.NAME_ASKING,
@@ -367,12 +372,17 @@ export class KioskService {
    */
   private async askForPhone(session: KioskSession) {
     let message
-    if(message==="Arabic")
+    if(message==="ar")
      message = 'ما هو رقمك؟';
     else 
       message="What is your number?"
 
-    const audio = await this.ttsAdapter.synthesize(message);
+     const audio = await this.kioskRedisService.getOrSynthesize(
+    KioskMessageKey.PHONE_ASKING,
+    this.lang,
+    () => this.ttsAdapter.synthesize(message),
+  );
+
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.PHONE_ASKING,
@@ -390,12 +400,18 @@ export class KioskService {
 
   private async showConfirmationButtons(session: KioskSession) {
     let message
-    if(message==="Arabic")
+    if(message==="ar")
      message = 'من فضلك اضغط على الإجابة';
     else
-      message="Please press on the suitable answer"
+      message="Please press on the suitable answer" 
 
-    const audio = await this.ttsAdapter.synthesize(message);
+     const audio = await this.kioskRedisService.getOrSynthesize(
+    KioskMessageKey.CONFIRMATION_BUTTONS,
+    this.lang,
+    () => this.ttsAdapter.synthesize(message),
+  );
+
+    
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.CONFIRMING_PHONE,
@@ -413,13 +429,19 @@ export class KioskService {
 
   private async showPhoneKeyboard(session: KioskSession) {
     let message
-    if(message==="Arabic")
+    if(message==="ar")
      message = 'من فضلك أدخل رقم هاتفك';
     else {
       message="Please enter your number"
     }
 
-    const audio = await this.ttsAdapter.synthesize(message);
+     const audio = await this.kioskRedisService.getOrSynthesize(
+    KioskMessageKey.PHONE_KEYBOARD,
+    this.lang,
+    () => this.ttsAdapter.synthesize(message),
+  );
+
+  
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.PHONE_ASKING,
@@ -437,13 +459,17 @@ export class KioskService {
 
   private async askForContactMethod(session: KioskSession) {
     let message
-    if(message==="Arabic")
+    if(message==="ar")
       message = 'كيف تفضل أن نتواصل معك؟ رسالة نصية، واتساب، تطبيق الساير، أم اتصال؟';
     else {
       message="How do you prefer to be contaced? SMS,WHATSAPP,SAYER APP OR CALL"
     }
 
-    const audio = await this.ttsAdapter.synthesize(message);
+     const audio = await this.kioskRedisService.getOrSynthesize(
+    KioskMessageKey.CONTACT_METHOD_ASKING,
+    this.lang,
+    () => this.ttsAdapter.synthesize(message),
+  );
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.CONTACT_METHOD_ASKING,
@@ -512,12 +538,16 @@ export class KioskService {
 
   private async showContactMethodButtons(session: KioskSession) {
     let message
-    if(message==="Arabic")
+    if(message==="ar")
       message = 'من فضلك اختر طريقة التواصل';
     else 
       message="Please select the contact method"
-
-    const audio = await this.ttsAdapter.synthesize(message);
+ 
+  const audio = await this.kioskRedisService.getOrSynthesize(
+    KioskMessageKey.CONTACT_METHOD_BUTTONS,
+    this.lang,
+    () => this.ttsAdapter.synthesize(message),
+  );
 
     await this.sessionService.updateSession(session.sessionId, {
       currentState: KioskStateEnum.CONTACT_METHOD_ASKING,
