@@ -2,6 +2,7 @@ import { ContactMethod } from '@common/enums/contactMethod.enum';
 import {
   Injectable,
   NotFoundException,
+  RequestTimeoutException,
 } from '@nestjs/common';
 import { IContactAdapter } from './ports/contact.port';
 import { SmsAdapter } from './adapters/SMS.adapter';
@@ -14,14 +15,14 @@ import { Notification } from '@common/dtos/notification.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { EVENTS } from '@common/events';
 import { ContactOutcomePayload } from '@common/typed-event-emitter.service';
-
-
+import { ContactStatus } from '@common/enums/contactStatus.enum';
 
 interface PendingContact {
   ticketId: string;
   method: ContactMethod;
   timer: NodeJS.Timeout;
   slotId:string
+  expiresAt:number
 }
 
 @Injectable()
@@ -82,51 +83,77 @@ export class ContactService {
     return result;
   }
 
- acknowledge(ticketId: string, slotId: string): ContactResult {
-  const pending = this.pendingContacts.get(ticketId);
+
+ acknowledge(ticketId: string,slotId:string): ContactResult {
+  const pending =
+    this.pendingContacts.get(ticketId);
 
   if (!pending) {
-    throw new NotFoundException(`No pending contact found for ticket ${ticketId}`);
+    throw new NotFoundException(
+      'Contact expired or does not exist',
+    );
   }
 
-  // Guard against a mismatched slotId from the client
   if (pending.slotId !== slotId) {
     throw new NotFoundException(
-      `Ticket ${ticketId} is pending for slot ${pending.slotId}, not ${slotId}`,
+      `Ticket ${ticketId} is pending for slot ${pending.slotId}, not ${slotId}`)
+    }
+
+  if (Date.now() >= pending.expiresAt) {
+    clearTimeout(pending.timer);
+
+    this.pendingContacts.delete(ticketId);
+
+    throw new RequestTimeoutException(
+      'Contact response time expired',
+
     );
   }
 
   clearTimeout(pending.timer);
-  this.pendingContacts.delete(ticketId);
 
   this.eventEmitter.emit(EVENTS.CONTACT_ACK, {
     ticketId,
     slotId: pending.slotId, // use the stored value, not the raw input
   } satisfies ContactOutcomePayload);
 
+  this.pendingContacts.delete(ticketId);
+  
+
   return {
     ticketId,
     method: pending.method,
     status: 'ACKNOWLEDGED',
   };
+
 }
+
+
 
 private startAcknowledgmentTimeout(
   { ticketId, slotId }: { ticketId: string; slotId: string },
   method: ContactMethod,
-): void {
+):{ticketId:string,method:ContactMethod,status:ContactStatus} {
   console.log("In start ack")
   const timer = setTimeout(() => {
     this.handleNoResponse({ ticketId, slotId });
   }, 30_000);
 
+  const expiresAt=Date.now()+30_000
 
   this.pendingContacts.set(ticketId, {
     ticketId,
     slotId,
     method,
     timer,
+    expiresAt
   });
+
+    return {
+    ticketId,
+    method: method,
+    status: 'ACKNOWLEDGED',
+  };
 }
 
   private handleNoResponse({ticketId,slotId}:ContactOutcomePayload): void {
