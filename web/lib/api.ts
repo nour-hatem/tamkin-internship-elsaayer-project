@@ -17,6 +17,7 @@ export interface CheckInRequest {
   name: string;
   phone: string;
   source: 'QR' | 'VOICE';
+  preferredContactMethod: 'SMS' | 'WHATSAPP' | 'ELSAAYER_APP' | 'CALLING_AGENT';
 }
 
 export interface CheckInResponse {
