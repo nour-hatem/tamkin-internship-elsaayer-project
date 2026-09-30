@@ -1,0 +1,64 @@
+export type GateStatus = "CONNECTED" | "OFFLINE";
+
+export type CustomerType = "TOYOTA_CUSTOMER" | "NEW_CUSTOMER";
+
+export type CustomerStatus =
+  | "WAITING"
+  | "IN_SERVICE"
+  | "COMPLETED";
+
+export type ActivityStatus =
+  | "SUCCESS"
+  | "WARNING"
+  | "ERROR"
+  | "INFO";
+
+export interface Gate {
+  id: string;
+  name: string;
+  location: string;
+  status: GateStatus;
+  waitingCount: number;
+  currentTicket?: string;
+  currentCustomerId?: string;
+
+  services: {
+    lpr: boolean;
+    sap: boolean;
+    queueEngine: boolean;
+    voiceAssistant: boolean;
+    notifications: boolean;
+    redis: boolean;
+  };
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  type: CustomerType;
+  phone: string;
+  vehicle: string;
+  plate: string;
+  ticket: string;
+  gateId: string;
+  status: CustomerStatus;
+  checkInTime: string;
+  waitTime?: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  timestamp: string;
+  gateId: string;
+  event: string;
+  description: string;
+  status: ActivityStatus;
+}
+
+export interface AnalyticsData {
+  totalCheckIns: number;
+  completedCheckIns: number;
+  averageWaitTime: string;
+  averageServiceTime: string;
+  gateUtilization: number;
+}
