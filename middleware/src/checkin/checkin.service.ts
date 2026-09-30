@@ -49,7 +49,7 @@ export class CheckInService {
       request.phone,
       request.source,
       request.preferredContactMethod,
-      request.ToyotaCustomer
+      request.IsToyotaCustomer
     );
 
     // Notify listeners that the check-in was submitted.

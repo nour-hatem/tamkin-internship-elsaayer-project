@@ -65,5 +65,5 @@ export type QueueTicketStatus =
   //preferredContactMethod: ContactMethod;
   status: QueueTicketStatus;
   createdAt: string;
-  ToyotaCustomer:boolean
+  IsToyotaCustomer:boolean
 }

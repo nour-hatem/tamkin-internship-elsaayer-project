@@ -22,5 +22,5 @@ export class QrCheckinDto {
   preferredContactMethod: ContactMethod;
   
   @IsBoolean()
-  ToyotaCustomer:boolean
+  IsToyotaCustomer:boolean
 }

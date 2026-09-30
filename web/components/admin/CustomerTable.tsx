@@ -64,7 +64,7 @@ export default function CustomerTable({
                 <td className="px-5 py-4">
                   <StatusBadge
                     status={
-                      ticket.ToyotaCustomer
+                      ticket.IsToyotaCustomer
                         ? "TOYOTA_CUSTOMER"
                         : "NEW_CUSTOMER"
                     }

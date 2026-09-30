@@ -98,7 +98,7 @@ export class QueueController {
           phone: '01012345678',
           source: 'VOICE',
           preferredContactMethod:"CALLING_AGENT",
-          ToyotaCustomer: true,
+          IsToyotaCustomer: true,
           status: 'WAITING',
           createdAt: new Date(),
         },
@@ -112,7 +112,7 @@ export class QueueController {
           phone: '01123456789',
           source: 'QR',
           preferredContactMethod:"SMS",
-          ToyotaCustomer: false,
+          IsToyotaCustomer: false,
           status: 'CALLED',
           createdAt: new Date(),
         },
@@ -126,7 +126,7 @@ export class QueueController {
           phone: '01234567890',
           source: 'VOICE',
           preferredContactMethod: "CALLING_AGENT",
-          ToyotaCustomer: true,
+          IsToyotaCustomer: true,
           status: 'IN_SERVICE',
           createdAt: new Date(),
         },
@@ -140,7 +140,7 @@ export class QueueController {
           phone: '01512345678',
           source: 'QR',
           preferredContactMethod: "SMS",
-          ToyotaCustomer: false,
+          IsToyotaCustomer: false,
           status: 'WAITING',
           createdAt: new Date(),
         },
@@ -154,7 +154,7 @@ export class QueueController {
           phone: '01098765432',
           source: 'VOICE',
           preferredContactMethod: "CALLING_AGENT",
-          ToyotaCustomer: true,
+          IsToyotaCustomer: true,
           status: 'WAITING',
           createdAt: new Date(),
         },
@@ -168,7 +168,7 @@ export class QueueController {
           phone: '01198765432',
           source: 'QR',
           preferredContactMethod: "SMS",
-          ToyotaCustomer: false,
+          IsToyotaCustomer: false,
           status: 'CALLED',
           createdAt: new Date(),
         },
@@ -197,7 +197,7 @@ export class QueueController {
           preferredContactMethod:"CALLING_AGENT",
           status: 'COMPLETED',
           createdAt: new Date(),
-          ToyotaCustomer:true
+          IsToyotaCustomer:true
         },
         {
           ticketId: 'TICK-1002',
@@ -210,7 +210,7 @@ export class QueueController {
           preferredContactMethod: "SMS",
           status: 'CALLED',
           createdAt: new Date(),
-          ToyotaCustomer:false
+          IsToyotaCustomer:false
         },
         {
           ticketId: 'TICK-1003',
@@ -223,7 +223,7 @@ export class QueueController {
           preferredContactMethod: "CALLING_AGENT",
           status: 'ACKNOWLEDGED',
           createdAt: new Date(),
-          ToyotaCustomer:true
+          IsToyotaCustomer:true
         },
         {
           ticketId: 'TICK-1004',
@@ -236,7 +236,7 @@ export class QueueController {
           preferredContactMethod: "SMS",
           status: 'IN_SERVICE',
           createdAt: new Date(),
-          ToyotaCustomer:true
+          IsToyotaCustomer:true
         },
       ],
     };
