@@ -21,13 +21,27 @@ export class CheckInService {
 
   async submit(request: CheckInRequestDto): Promise<CheckInResultDto> {
     this.logger.log(
-      `Processing check-in request for plate: ${request.plate} via ${request.source}`,
+      `[CheckIn] Check-in submitted: plate ${request.plate}, source ${request.source}, contactMethod ${request.preferredContactMethod}, gateId ${request.gateId}`,
+      {
+        plate: request.plate,
+        source: request.source,
+        contactMethod: request.preferredContactMethod,
+        gateId: request.gateId,
+      },
     );
 
     // 1. Duplicate check
     const existingTicket = await this.queueService.getActiveTicketForPlate(request.plate);
 
     if (existingTicket) {
+      this.logger.warn(
+        `[CheckIn] Check-in rejected (already checked in): plate ${request.plate}, ticketId ${existingTicket.ticketId}`,
+        {
+          plate: request.plate,
+          ticketId: existingTicket.ticketId,
+        },
+      );
+
       const result: CheckInResultDto = {
         success: false,
         gateOpened: false,
@@ -75,6 +89,11 @@ export class CheckInService {
     } else {
       this.logger.log(
         `Gate ${request.gateId} is rate-limited. Check-in ${ticket.ticketId} remains queued.`,
+        {
+          gateId: request.gateId,
+          ticketId: ticket.ticketId,
+          plate: request.plate,
+        },
       );
     }
 
@@ -87,7 +106,15 @@ export class CheckInService {
         : 'Check-in recorded and queued. Gate is currently rate-limited.',
     };
 
-    this.logger.log(`Check-in complete: Ticket ${ticket.ticketId}, Gate Opened: ${gateOpened}`);
+    this.logger.log(
+      `[CheckIn] Check-in completed: Ticket ${ticket.ticketId}, plate ${request.plate}, gateId ${request.gateId}, gateOpened ${gateOpened}`,
+      {
+        ticketId: ticket.ticketId,
+        plate: request.plate,
+        gateId: request.gateId,
+        gateOpened,
+      },
+    );
 
     this.eventEmitter.emit(EVENTS.CHECKIN_COMPLETED, result);
 
