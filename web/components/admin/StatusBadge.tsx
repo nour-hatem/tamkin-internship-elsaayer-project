@@ -3,13 +3,15 @@ import type {
   CustomerStatus,
   CustomerType,
   GateStatus,
+  QueueTicketStatus,
 } from "@/types/admin";
 
 type Status =
   | GateStatus
   | CustomerStatus
   | CustomerType
-  | ActivityStatus;
+  | ActivityStatus
+  | QueueTicketStatus;
 
 interface StatusBadgeProps {
   status: Status;
@@ -40,14 +42,29 @@ export default function StatusBadge({
       className: "bg-amber-50 text-amber-700",
     },
 
+    CALLED: {
+      label: "Called",
+      className: "bg-blue-50 text-blue-700",
+    },
+
+    ACKNOWLEDGED: {
+      label: "Acknowledged",
+      className: "bg-purple-50 text-purple-700",
+    },
+
     IN_SERVICE: {
       label: "In Service",
-      className: "bg-blue-50 text-blue-700",
+      className: "bg-green-50 text-green-700",
     },
 
     COMPLETED: {
       label: "Completed",
       className: "bg-green-50 text-green-700",
+    },
+
+    SKIPPED: {
+      label: "Skipped",
+      className: "bg-gray-50 text-gray-700",
     },
 
     TOYOTA_CUSTOMER: {
