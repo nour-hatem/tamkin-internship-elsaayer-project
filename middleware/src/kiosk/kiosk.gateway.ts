@@ -28,6 +28,7 @@ type SendGreetingDTO = {
 };
 
 @WebSocketGateway({
+  namespace: '/kiosk',
   cors: {
     origin: '*',
   },
