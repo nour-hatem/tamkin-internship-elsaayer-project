@@ -12,6 +12,10 @@ export const EVENTS = {
   KIOSK_INPUT: 'KIOSK_INPUT',
   CONTACT_ACK: 'queue.contact.ack',
   CONTACT_TIMEOUT: 'queue.contact.timeout',
+
+  GATE_CONNECTED: 'gate.connected',
+  GATE_DISCONNECTED: 'gate.disconnected',
+  QUEUE_UPDATED: 'queue.updated',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];

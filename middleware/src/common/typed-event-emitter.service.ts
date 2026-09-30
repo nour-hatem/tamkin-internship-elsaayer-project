@@ -44,6 +44,9 @@ export interface EventPayloadMap {
   };
   [EVENTS.CONTACT_ACK]: ContactOutcomePayload;
   [EVENTS.CONTACT_TIMEOUT]: ContactOutcomePayload;
+  [EVENTS.GATE_CONNECTED]: { gateId: string; socketId: string; timestamp: Date };
+  [EVENTS.GATE_DISCONNECTED]: { gateId: string; socketId: string; timestamp: Date };
+  [EVENTS.QUEUE_UPDATED]: { gateId: string; ticketId: string; status: string };
 }
 
 @Injectable()
