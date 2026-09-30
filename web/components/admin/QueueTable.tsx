@@ -1,12 +1,42 @@
 import TicketPopover from "./TicketPopover";
-import type { Customer } from "@/types/admin";
+import type { QueueTicket, QueueTicketStatus } from "@/types/admin";
 
 interface Props {
-  customers: Customer[];
+  tickets: QueueTicket[];
+}
+
+function formatCheckInTime(createdAt: Date | string) {
+  return new Date(createdAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getStatusStyle(status: QueueTicketStatus) {
+  switch (status) {
+    case "WAITING":
+      return "bg-amber-50 text-amber-700";
+
+    case "CALLED":
+      return "bg-blue-50 text-blue-700";
+
+    case "ACKNOWLEDGED":
+      return "bg-purple-50 text-purple-700";
+
+    case "IN_SERVICE":
+      return "bg-green-50 text-green-700";
+
+    default:
+      return "bg-gray-50 text-gray-700";
+  }
+}
+
+function formatStatus(status: QueueTicketStatus) {
+  return status.replace("_", " ");
 }
 
 export default function QueueTable({
-  customers,
+  tickets,
 }: Props) {
   return (
     <div className="overflow-visible rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -33,28 +63,40 @@ export default function QueueTable({
               </th>
 
               <th className="px-5 py-3">
+                Check-in Time
+              </th>
+
+              <th className="px-5 py-3">
                 Status
               </th>
             </tr>
           </thead>
 
           <tbody>
-            {customers.map((customer, index) => (
+            {tickets.map((ticket) => (
               <tr
-                key={customer.id}
+                key={ticket.ticketId}
                 className="border-t border-gray-100"
               >
                 <td className="px-5 py-4 text-gray-500">
-                  {index + 1}
+                  {ticket.queueNumber}
                 </td>
 
                 <td className="px-5 py-4">
-                  <TicketPopover customer={customer} />
+                  <TicketPopover ticket={ticket} />
+                </td>
+
+                <td className="px-5 py-4 text-gray-600">
+                  {formatCheckInTime(ticket.createdAt)}
                 </td>
 
                 <td className="px-5 py-4">
-                  <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-                    Waiting
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${getStatusStyle(
+                      ticket.status,
+                    )}`}
+                  >
+                    {formatStatus(ticket.status)}
                   </span>
                 </td>
               </tr>

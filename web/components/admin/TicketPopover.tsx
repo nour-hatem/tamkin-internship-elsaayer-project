@@ -1,16 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import StatusBadge from "./StatusBadge";
-import type { Customer } from "@/types/admin";
+import type { QueueTicket } from "@/types/admin";
 
 interface Props {
-  customer: Customer;
+  ticket: QueueTicket;
 }
 
-export default function TicketPopover({
-  customer,
-}: Props) {
+export default function TicketPopover({ ticket }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -20,52 +17,30 @@ export default function TicketPopover({
       onMouseLeave={() => setOpen(false)}
     >
       <button className="font-semibold text-red-600 hover:text-red-700">
-        {customer.ticket}
+        #{ticket.queueNumber}
       </button>
 
       {open && (
         <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-4 text-left shadow-xl">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-semibold text-gray-900">
-                {customer.name}
-              </p>
-
-              <p className="mt-1 text-xs text-gray-500">
-                {customer.vehicle}
-              </p>
-            </div>
-
-            <StatusBadge status={customer.type} />
-          </div>
+          <p className="font-semibold text-gray-900">
+            {ticket.name}
+          </p>
 
           <div className="mt-4 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500">
-                Plate
-              </span>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Phone</span>
 
               <span className="font-medium">
-                {customer.plate}
+                {ticket.phone}
               </span>
             </div>
 
-            <div className="flex justify-between">
-              <span className="text-gray-500">
-                Check-in
-              </span>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Plate</span>
 
               <span className="font-medium">
-                {customer.checkInTime}
+                {ticket.plate}
               </span>
-            </div>
-
-            <div className="flex justify-between">
-              <span className="text-gray-500">
-                Status
-              </span>
-
-              <StatusBadge status={customer.status} />
             </div>
           </div>
         </div>

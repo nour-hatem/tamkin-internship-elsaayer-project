@@ -62,3 +62,23 @@ export interface AnalyticsData {
   averageServiceTime: string;
   gateUtilization: number;
 }
+
+export type QueueTicketStatus =
+  | "WAITING"
+  | "CALLED"
+  | "ACKNOWLEDGED"
+  | "IN_SERVICE";
+
+
+  export interface QueueTicket {
+  ticketId: string;
+  queueNumber: number;
+  gateId: string;
+  plate: string;
+  name: string;
+  phone: string;
+  source: "QR" | "VOICE";
+  //preferredContactMethod: ContactMethod;
+  status: QueueTicketStatus;
+  createdAt: string;
+}

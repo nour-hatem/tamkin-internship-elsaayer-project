@@ -1,39 +1,83 @@
+"use client";
+
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import CurrentCustomerCard from "@/components/admin/CurrentCustomerCard";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+
 import QueueTable from "@/components/admin/QueueTable";
-import { adminCustomers, adminGates } from "@/data/admin-mock";
+import CurrentCustomerCard from "@/components/admin/CurrentCustomerCard";
+import type {
+  QueueTicket,
+  QueueTicketStatus,
+} from "@/types/admin";
 
-export default async function GateQueuePage({
-  params,
-}: {
-  params: Promise<{ gateId: string }>;
-}) {
-  const { gateId } = await params;
+interface GateQueueResponse {
+  gateId: string;
+  tickets: QueueTicket[];
+}
 
-  const gate = adminGates.find(
-    (item) => item.id === gateId
+const ALLOWED_STATUSES: QueueTicketStatus[] = [
+  "WAITING",
+  "CALLED",
+  "ACKNOWLEDGED",
+  "IN_SERVICE",
+];
+
+export default function GateQueuePage() {
+  const params = useParams();
+  const gateId = params.gateId as string;
+
+  const [tickets, setTickets] = useState<QueueTicket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchQueue() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const response = await fetch(
+          `http://localhost:3001/admin/gates/${gateId}/queue`,
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch queue");
+        }
+
+        const data: GateQueueResponse = await response.json();
+
+        const filteredTickets = data.tickets.filter((ticket) =>
+          ALLOWED_STATUSES.includes(ticket.status),
+        );
+
+        setTickets(filteredTickets);
+      } catch (err) {
+        console.error(err);
+        setError("Unable to load the queue.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchQueue();
+  }, [gateId]);
+
+  const currentTicket = tickets.find(
+    (ticket) => ticket.status === "IN_SERVICE",
   );
 
-  if (!gate) {
-    notFound();
-  }
-
-  const customers = adminCustomers.filter(
-    (customer) => customer.gateId === gateId
-  );
-
-  const currentCustomer = customers.find(
-    (customer) =>
-      customer.id === gate.currentCustomerId
-  );
-
-  const queueCustomers = customers.filter(
-    (customer) => customer.status === "WAITING"
+  const queueTickets = tickets.filter(
+    (ticket) =>
+      ticket.status === "WAITING" ||
+      ticket.status === "CALLED" ||
+      ticket.status === "ACKNOWLEDGED" ||
+      ticket.status === "IN_SERVICE",
   );
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
         <Link
           href="/admin/gates"
@@ -44,36 +88,60 @@ export default async function GateQueuePage({
 
         <div className="mt-4">
           <h1 className="text-2xl font-bold">
-            {gate.name}
+            Gate {gateId}
           </h1>
 
           <p className="mt-1 text-sm text-gray-500">
-            {gate.location}
+            Queue monitoring
           </p>
         </div>
       </div>
 
-      <div className="flex gap-1 rounded-lg bg-gray-100 p-1 w-fit">
+      {/* Tabs */}
+      <div className="flex w-fit gap-1 rounded-lg bg-gray-100 p-1">
         <Link
-          href={`/admin/gates/${gate.id}/queue`}
+          href={`/admin/gates/${gateId}/queue`}
           className="rounded-md bg-white px-4 py-2 text-sm font-medium shadow-sm"
         >
           Queue
         </Link>
 
         <Link
-          href={`/admin/gates/${gate.id}/customers`}
+          href={`/admin/gates/${gateId}/customers`}
           className="rounded-md px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900"
         >
           Customers
         </Link>
       </div>
 
-      <CurrentCustomerCard
-        customer={currentCustomer}
-      />
+      {/* Loading */}
+      {loading && (
+        <div className="rounded-xl border border-gray-200 bg-white p-6">
+          <p className="text-sm text-gray-500">
+            Loading queue...
+          </p>
+        </div>
+      )}
 
-      <QueueTable customers={queueCustomers} />
+      {/* Error */}
+      {!loading && error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+          <p className="text-sm text-red-700">
+            {error}
+          </p>
+        </div>
+      )}
+
+      {/* Content */}
+      {!loading && !error && (
+        <>
+          <CurrentCustomerCard
+            customer={undefined}
+          />
+
+          <QueueTable tickets={queueTickets} />
+        </>
+      )}
     </div>
   );
 }

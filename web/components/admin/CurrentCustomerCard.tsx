@@ -31,7 +31,6 @@ export default function CurrentCustomerCard({
           </h2>
 
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-            <span>{customer.vehicle}</span>
             <span>•</span>
             <span>{customer.plate}</span>
           </div>
