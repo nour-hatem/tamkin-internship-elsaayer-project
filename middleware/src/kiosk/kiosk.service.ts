@@ -23,7 +23,7 @@ import {
 import { KioskSession } from './interfaces/kiosk-session.interface';
 import { KioskInputDto } from './interfaces/KioskInputDto';
 import { ISapAdapter } from 'src/sap/ports/sap.port';
-import { GATE_ADAPTER_TOKEN, IGateAdapter } from 'src/gate/ports/gate.port';
+import { GateService } from 'src/gate/gate.service';
 import { CheckInService } from 'src/checkin/checkin.service';
 
 @Injectable()
@@ -42,8 +42,7 @@ export class KioskService {
     private readonly sttAdapter: ISttAdapter,
     @Inject(NLU_ADAPTER_TOKEN)
     private readonly nluAdapter: INluAdapter,
-    @Inject(GATE_ADAPTER_TOKEN)
-    private readonly gateAdapter: IGateAdapter,
+    private readonly gateService: GateService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 

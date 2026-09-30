@@ -14,7 +14,7 @@ import {
   STT_ADAPTER_TOKEN,
   NLU_ADAPTER_TOKEN,
 } from '../ai';
-import { GATE_ADAPTER_TOKEN } from '../gate/ports/gate.port';
+import { GateService } from '../gate/gate.service';
 
 describe('KioskService (Voice Contact Method Integration)', () => {
   let service: KioskService;
@@ -174,7 +174,7 @@ describe('KioskService (Voice Contact Method Integration)', () => {
         },
 
         {
-          provide: GATE_ADAPTER_TOKEN,
+          provide: GateService,
           useValue: {
             openGate: jest.fn().mockResolvedValue(true),
           },
