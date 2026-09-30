@@ -205,6 +205,29 @@ export class KioskGateway
     this.server.emit('gate.state', payload);
   }
 
+  @OnEvent(EVENTS.GATE_CONNECTED)
+  handleGateConnectedBroadcast(payload: {
+    gateId: string;
+    socketId: string;
+    timestamp: Date;
+  }) {
+    this.server.emit('gate.connected', {
+      gateId: payload.gateId,
+      connectedAt: payload.timestamp.toISOString(),
+    });
+  }
+
+  @OnEvent(EVENTS.GATE_DISCONNECTED)
+  handleGateDisconnectedBroadcast(payload: {
+    gateId: string;
+    socketId: string;
+    timestamp: Date;
+  }) {
+    this.server.emit('gate.disconnected', {
+      gateId: payload.gateId,
+    });
+  }
+
   @SubscribeMessage('INPUT')
   async handleInput(
     @ConnectedSocket() client: Socket,
