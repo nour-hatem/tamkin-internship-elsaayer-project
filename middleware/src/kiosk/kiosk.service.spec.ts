@@ -9,6 +9,12 @@ import { KioskStateEnum } from './enum/VoiceStateEnum';
 import { inputModeEnum } from './enum/InputModeEnum';
 import { KioskSession } from './interfaces/kiosk-session.interface';
 import { NluRulesAdapter } from '../ai/nlu/nlu-rules.adapter';
+import {
+  TTS_ADAPTER_TOKEN,
+  STT_ADAPTER_TOKEN,
+  NLU_ADAPTER_TOKEN,
+} from '../ai';
+import { GATE_ADAPTER_TOKEN } from '../gate/ports/gate.port';
 
 describe('KioskService (Voice Contact Method Integration)', () => {
   let service: KioskService;
@@ -153,22 +159,22 @@ describe('KioskService (Voice Contact Method Integration)', () => {
         },
 
         {
-          provide: 'ITtsAdapter',
+          provide: TTS_ADAPTER_TOKEN,
           useValue: ttsAdapter,
         },
 
         {
-          provide: 'ISttAdapter',
+          provide: STT_ADAPTER_TOKEN,
           useValue: sttAdapter,
         },
 
         {
-          provide: 'INluAdapter',
+          provide: NLU_ADAPTER_TOKEN,
           useValue: nluAdapter,
         },
 
         {
-          provide: 'IGateAdapter',
+          provide: GATE_ADAPTER_TOKEN,
           useValue: {
             openGate: jest.fn().mockResolvedValue(true),
           },
