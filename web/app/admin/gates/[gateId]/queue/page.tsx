@@ -6,6 +6,8 @@ import { useParams } from "next/navigation";
 
 import QueueTable from "@/components/admin/QueueTable";
 import CurrentCustomerCard from "@/components/admin/CurrentCustomerCard";
+import { queueSocket } from "@/lib/gateSocket";
+
 import type {
   QueueTicket,
   QueueTicketStatus,
@@ -14,6 +16,15 @@ import type {
 interface GateQueueResponse {
   gateId: string;
   tickets: QueueTicket[];
+}
+
+interface TicketAddedPayload {
+  ticket: QueueTicket;
+}
+
+interface TicketStatusUpdatedPayload {
+  ticketId: string;
+  status: QueueTicketStatus;
 }
 
 const ALLOWED_STATUSES: QueueTicketStatus[] = [
@@ -31,6 +42,9 @@ export default function GateQueuePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * Initial queue
+   */
   useEffect(() => {
     async function fetchQueue() {
       try {
@@ -38,7 +52,7 @@ export default function GateQueuePage() {
         setError(null);
 
         const response = await fetch(
-          `http://localhost:3001/admin/gates/${gateId}/queue`,
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/admin/gates/${gateId}/queue`,
         );
 
         if (!response.ok) {
@@ -63,16 +77,102 @@ export default function GateQueuePage() {
     fetchQueue();
   }, [gateId]);
 
+  /*
+   * Socket.IO
+   */
+  useEffect(() => {
+    if (!gateId) return;
+
+    const room = `gate:${gateId}`;
+
+    queueSocket.connect();
+
+    queueSocket.emit("joinGate", {
+      gateId,
+    });
+
+    /*
+     * New ticket
+     */
+    const handleTicketAdded = (
+      payload: TicketAddedPayload,
+    ) => {
+      const ticket = payload.ticket;
+
+      if (ticket.gateId !== gateId) {
+        return;
+      }
+
+      if (!ALLOWED_STATUSES.includes(ticket.status)) {
+        return;
+      }
+
+      setTickets((currentTickets) => {
+        const alreadyExists = currentTickets.some(
+          (item) => item.ticketId === ticket.ticketId,
+        );
+
+        if (alreadyExists) {
+          return currentTickets;
+        }
+
+        return [...currentTickets, ticket];
+      });
+    };
+
+    /*
+     * Ticket status changed
+     */
+    const handleTicketStatusUpdated = (
+      payload: TicketStatusUpdatedPayload,
+    ) => {
+      setTickets((currentTickets) =>
+        currentTickets.map((ticket) =>
+          ticket.ticketId === payload.ticketId
+            ? {
+                ...ticket,
+                status: payload.status,
+              }
+            : ticket,
+        ),
+      );
+    };
+
+    queueSocket.on(
+      "QUEUE_TICKET_ADDED",
+      handleTicketAdded,
+    );
+
+    queueSocket.on(
+      "QUEUE_TICKET_STATUS_UPDATED",
+      handleTicketStatusUpdated,
+    );
+
+    return () => {
+      queueSocket.off(
+        "QUEUE_TICKET_ADDED",
+        handleTicketAdded,
+      );
+
+      queueSocket.off(
+        "QUEUE_TICKET_STATUS_UPDATED",
+        handleTicketStatusUpdated,
+      );
+
+      queueSocket.emit("leaveGate", {
+        gateId,
+      });
+
+      queueSocket.disconnect();
+    };
+  }, [gateId]);
+
   const currentTicket = tickets.find(
     (ticket) => ticket.status === "IN_SERVICE",
   );
 
-  const queueTickets = tickets.filter(
-    (ticket) =>
-      ticket.status === "WAITING" ||
-      ticket.status === "CALLED" ||
-      ticket.status === "ACKNOWLEDGED" ||
-      ticket.status === "IN_SERVICE",
+  const queueTickets = tickets.filter((ticket) =>
+    ALLOWED_STATUSES.includes(ticket.status),
   );
 
   return (
@@ -135,9 +235,7 @@ export default function GateQueuePage() {
       {/* Content */}
       {!loading && !error && (
         <>
-          <CurrentCustomerCard
-            customer={undefined}
-          />
+          <CurrentCustomerCard customer={undefined} />
 
           <QueueTable tickets={queueTickets} />
         </>
