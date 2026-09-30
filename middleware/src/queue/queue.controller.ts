@@ -79,7 +79,7 @@ export class QueueController {
           phone: '01012345678',
           source: 'VOICE',
           preferredContactMethod:"CALLING_AGENT",
-          status: 'WAITING',
+          status: 'COMPLETED',
           createdAt: new Date(),
         },
         {

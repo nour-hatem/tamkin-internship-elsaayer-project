@@ -22,6 +22,7 @@ export interface QueueTicket {
   preferredContactMethod: ContactMethod;
   status: QueueTicketStatus;
   createdAt: Date;
+  ToyotaCustomer:boolean
 
 }
 
@@ -60,7 +61,8 @@ export class QueueService {
     name: string,
     phone: string,
     source: 'QR' | 'VOICE',
-    preferredContactMethod:ContactMethod
+    preferredContactMethod:ContactMethod,
+    ToyotaCustomer:boolean
   ): Promise<QueueTicket> {
     this.ticketCounter += 1;
     this.queueNumberCounter += 1;
@@ -78,6 +80,7 @@ export class QueueService {
       preferredContactMethod,
       status: 'WAITING',
       createdAt: new Date(),
+      ToyotaCustomer
     };
 
     this.tickets.push(ticket);

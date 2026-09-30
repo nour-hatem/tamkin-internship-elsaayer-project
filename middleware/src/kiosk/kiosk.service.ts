@@ -80,6 +80,8 @@ export class KioskService {
       contactMethodRetries: 0,
 
       contactMethod: null,
+
+      ToyotaCustomer:payload.found? true:false
     });
 
     this.logger.log(`[KioskService] Session created: ${session.sessionId}`);
@@ -353,6 +355,7 @@ export class KioskService {
         phone: session.phone,
         source: 'VOICE',
         preferredContactMethod: session.contactMethod,
+        ToyotaCustomer:session.ToyotaCustomer
       });
     } catch (error) {
       this.logger.error(`[KioskService] Failed to open gate ${session.gateId}`, error);

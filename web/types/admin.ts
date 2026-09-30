@@ -32,19 +32,7 @@ export interface Gate {
   };
 }
 
-export interface Customer {
-  id: string;
-  name: string;
-  type: CustomerType;
-  phone: string;
-  vehicle: string;
-  plate: string;
-  ticket: string;
-  gateId: string;
-  status: CustomerStatus;
-  checkInTime: string;
-  waitTime?: string;
-}
+
 
 export interface ActivityLog {
   id: string;
@@ -64,11 +52,7 @@ export interface AnalyticsData {
 }
 
 export type QueueTicketStatus =
-  | "WAITING"
-  | "CALLED"
-  | "ACKNOWLEDGED"
-  | "IN_SERVICE";
-
+  'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED';
 
   export interface QueueTicket {
   ticketId: string;

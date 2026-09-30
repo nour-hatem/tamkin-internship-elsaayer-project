@@ -145,6 +145,7 @@ export class QrService {
       source: 'QR',
       preferredContactMethod:
       dto.preferredContactMethod,
+      ToyotaCustomer:dto.ToyotaCustomer
     });
 
     if (!result.success) {
