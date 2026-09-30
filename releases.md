@@ -1,5 +1,81 @@
 # Releases
 
+## [2026-10-01] feat(admin): replace mock data with API & real-time queue updates
+
+**By:** Sara
+
+### Changes
+
+* Removed `admin-mock` data from the Admin Dashboard.
+* Removed connected/offline gate statistics; gate connection status is handled by Nour.
+* Added API integration:
+  * `GET /admin/gates`
+  * `GET /admin/queue`
+  * `GET /admin/gates/:gateId/queue`
+* Added loading and error states.
+* Dashboard statistics are now calculated from queue tickets:
+  * `WAITING` → Waiting Customers
+  * `CALLED` → Called Customers
+  * `IN_SERVICE` → Currently In Service
+* Gate cards now display gate name, location, and waiting customers.
+* Waiting customers per gate are filtered by `gateId` and `WAITING` status.
+### Queue & Customers
+* Replaced mock data with `GET /admin/gates/:gateId/queue`.
+* Added `isToyotaCustomer` to `QueueTicket`.
+  * `true` → Toyota Customer
+  * `false` → New Customer
+* Queue page shows only:
+  * `WAITING`
+  * `CALLED`
+  * `ACKNOWLEDGED`
+  * `IN_SERVICE`
+* Customers page displays all returned tickets without status filtering.
+* Removed vehicle information from the tables.
+* Added phone number to the ticket hover information.
+### Socket.IO
+* Added `src/lib/gateSocket.ts`.
+* Connected to the `/gate` namespace.
+* Added gate rooms using `gate:{gateId}`.
+* Added:
+  * `joinGate`
+  * `leaveGate`
+  * `QUEUE_TICKET_ADDED`
+  * `QUEUE_TICKET_STATUS_UPDATED`
+* Queue and Customers pages now receive ticket additions and status updates in real time.
+### QueueTicket
+```ts
+export interface QueueTicket {
+  ticketId: string;
+  queueNumber: number;
+  gateId: string;
+  plate: string;
+  name: string;
+  phone: string;
+  source: "QR" | "VOICE";
+  preferredContactMethod: ContactMethod;
+  IsToyotaCustomer: boolean;
+  status: QueueTicketStatus;
+  createdAt: Date | string;
+}
+```
+### StatusBadge
+Added support for:
+```text
+WAITING
+CALLED
+ACKNOWLEDGED
+IN_SERVICE
+COMPLETED
+SKIPPED
+TOYOTA_CUSTOMER
+NEW_CUSTOMER
+```
+### Temporary Testing
+Created temporary backend mock responses for:
+GET /admin/gates
+GET /admin/queue
+GET /admin/gates/:gateId/queue
+
 ## [2026-09-22] feat(kiosk-redis): cache static TTS prompts in Redis (7-day TTL)
 
 **By:** Sara
