@@ -35,6 +35,7 @@ export class SessionService {
       contactMethodRetries: dto.contactMethodRetries ?? 0,
       contactMethod: dto.contactMethod ?? null,
       socketId: dto.socketId ?? null,
+      ToyotaCustomer:dto.ToyotaCustomer?? null
     };
 
     await this.sessionRepository.save(session, this.ttlSeconds);
