@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 
 import QueueTable from "@/components/admin/QueueTable";
 import CurrentCustomerCard from "@/components/admin/CurrentCustomerCard";
-import { queueSocket } from "@/lib/gateSocket";
+import { gateSocket } from "@/lib/gateSocket";
 
 import type {
   QueueTicket,
@@ -85,9 +85,9 @@ export default function GateQueuePage() {
 
     const room = `gate:${gateId}`;
 
-    queueSocket.connect();
+    gateSocket.connect();
 
-    queueSocket.emit("joinGate", {
+    gateSocket.emit("joinGate", {
       gateId,
     });
 
@@ -138,32 +138,32 @@ export default function GateQueuePage() {
       );
     };
 
-    queueSocket.on(
+    gateSocket.on(
       "QUEUE_TICKET_ADDED",
       handleTicketAdded,
     );
 
-    queueSocket.on(
+    gateSocket.on(
       "QUEUE_TICKET_STATUS_UPDATED",
       handleTicketStatusUpdated,
     );
 
     return () => {
-      queueSocket.off(
+      gateSocket.off(
         "QUEUE_TICKET_ADDED",
         handleTicketAdded,
       );
 
-      queueSocket.off(
+      gateSocket.off(
         "QUEUE_TICKET_STATUS_UPDATED",
         handleTicketStatusUpdated,
       );
 
-      queueSocket.emit("leaveGate", {
+      gateSocket.emit("leaveGate", {
         gateId,
       });
 
-      queueSocket.disconnect();
+      gateSocket.disconnect();
     };
   }, [gateId]);
 

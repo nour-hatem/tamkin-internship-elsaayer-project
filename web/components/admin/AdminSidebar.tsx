@@ -27,16 +27,16 @@ const navigation = [
     href: "/admin/gates",
     icon: DoorOpen,
   },
-  {
-    name: "Analytics",
-    href: "/admin/analytics",
-    icon: BarChart3,
-  },
-  {
-    name: "Activity Logs",
-    href: "/admin/activity",
-    icon: Activity,
-  },
+  // {
+  //   name: "Analytics",
+  //   href: "/admin/analytics",
+  //   icon: BarChart3,
+  // },
+  // {
+  //   name: "Activity Logs",
+  //   href: "/admin/activity",
+  //   icon: Activity,
+  // },
   {
     name: "Settings",
     href: "/admin/settings",

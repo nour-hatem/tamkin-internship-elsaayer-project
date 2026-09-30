@@ -5,7 +5,11 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 import CustomerTable from "@/components/admin/CustomerTable";
-import type { QueueTicket } from "@/types/admin";
+import { gateSocket } from "@/lib/gateSocket";
+import type {
+  QueueTicket,
+  QueueTicketStatus,
+} from "@/types/admin";
 
 interface GateQueueResponse {
   gateId: string;
@@ -20,6 +24,7 @@ export default function GateCustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Initial customers data
   useEffect(() => {
     async function fetchCustomers() {
       try {
@@ -36,8 +41,7 @@ export default function GateCustomersPage() {
 
         const data: GateQueueResponse = await response.json();
 
-        // No filtering here.
-        // Customers page displays every ticket returned by the API.
+        // Customers tab shows ALL tickets.
         setTickets(data.tickets);
       } catch (err) {
         console.error(err);
@@ -50,9 +54,82 @@ export default function GateCustomersPage() {
     fetchCustomers();
   }, [gateId]);
 
+  // Real-time customer updates
+  useEffect(() => {
+    if (!gateId) return;
+
+    gateSocket.connect();
+
+    gateSocket.emit("joinGate", { gateId });
+
+    // New customer/ticket entered the queue
+    const handleTicketAdded = (payload: {
+      ticket: QueueTicket;
+    }) => {
+      const ticket = payload.ticket;
+
+      // Make sure the ticket belongs to this gate
+      if (ticket.gateId !== gateId) return;
+
+      setTickets((current) => {
+        // Prevent duplicates
+        if (
+          current.some(
+            (item) => item.ticketId === ticket.ticketId,
+          )
+        ) {
+          return current;
+        }
+
+        return [...current, ticket];
+      });
+    };
+
+    // Existing customer's status changed
+    const handleTicketStatusUpdated = (payload: {
+      ticketId: string;
+      status: QueueTicketStatus;
+    }) => {
+      setTickets((current) =>
+        current.map((ticket) =>
+          ticket.ticketId === payload.ticketId
+            ? {
+                ...ticket,
+                status: payload.status,
+              }
+            : ticket,
+        ),
+      );
+    };
+
+    gateSocket.on(
+      "QUEUE_TICKET_ADDED",
+      handleTicketAdded,
+    );
+
+    gateSocket.on(
+      "QUEUE_TICKET_STATUS_UPDATED",
+      handleTicketStatusUpdated,
+    );
+
+    return () => {
+      gateSocket.off(
+        "QUEUE_TICKET_ADDED",
+        handleTicketAdded,
+      );
+
+      gateSocket.off(
+        "QUEUE_TICKET_STATUS_UPDATED",
+        handleTicketStatusUpdated,
+      );
+
+      gateSocket.emit("leaveGate", { gateId });
+      gateSocket.disconnect();
+    };
+  }, [gateId]);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <Link
           href="/admin/gates"
@@ -72,7 +149,6 @@ export default function GateCustomersPage() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex w-fit gap-1 rounded-lg bg-gray-100 p-1">
         <Link
           href={`/admin/gates/${gateId}/queue`}
@@ -89,7 +165,6 @@ export default function GateCustomersPage() {
         </Link>
       </div>
 
-      {/* Page description */}
       <div>
         <h2 className="text-lg font-semibold">
           Gate Customers
@@ -100,7 +175,6 @@ export default function GateCustomersPage() {
         </p>
       </div>
 
-      {/* Loading */}
       {loading && (
         <div className="rounded-xl border border-gray-200 bg-white p-6">
           <p className="text-sm text-gray-500">
@@ -109,7 +183,6 @@ export default function GateCustomersPage() {
         </div>
       )}
 
-      {/* Error */}
       {!loading && error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-6">
           <p className="text-sm text-red-700">
@@ -118,7 +191,6 @@ export default function GateCustomersPage() {
         </div>
       )}
 
-      {/* Customers */}
       {!loading && !error && (
         <CustomerTable tickets={tickets} />
       )}
