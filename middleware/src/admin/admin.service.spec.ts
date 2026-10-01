@@ -45,6 +45,29 @@ describe('AdminService', () => {
     });
   });
 
+  it('should return GateInfo with id, derived name, and empty location for each connected gate', () => {
+    const ts = new Date('2026-01-01T00:00:00.000Z');
+    service.handleGateConnected({ gateId: 'gate-1', socketId: 'sock-1', timestamp: ts });
+    service.handleGateConnected({ gateId: 'gate-2', socketId: 'sock-2', timestamp: ts });
+
+    const gates = service.getConnectedGates();
+    expect(gates).toHaveLength(2);
+
+    const gate1 = gates.find((g) => g.id === 'gate-1');
+    expect(gate1).toMatchObject({
+      id: 'gate-1',
+      name: 'Gate 1',
+      location: '',
+    });
+
+    const gate2 = gates.find((g) => g.id === 'gate-2');
+    expect(gate2).toMatchObject({
+      id: 'gate-2',
+      name: 'Gate 2',
+      location: '',
+    });
+  });
+
   it('should remove a gate on GATE_DISCONNECTED', () => {
     const ts = new Date();
     service.handleGateConnected({ gateId: 'gate-1', socketId: 'sock-a', timestamp: ts });
