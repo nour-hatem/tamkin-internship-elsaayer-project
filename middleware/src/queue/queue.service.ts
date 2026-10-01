@@ -20,6 +20,8 @@ export interface QueueTicket {
   preferredContactMethod: ContactMethod;
   status: QueueTicketStatus;
   createdAt: Date;
+  isToyotaCustomer: boolean;
+  IsToyotaCustomer: boolean;
 }
 
 export interface QueueSlot {
@@ -54,6 +56,7 @@ export class QueueService {
     phone: string,
     source: 'QR' | 'VOICE',
     preferredContactMethod: ContactMethod,
+    isToyotaCustomer: boolean = false,
   ): Promise<QueueTicket> {
     this.logger.log(
       `[Queue] Creating queue ticket for plate: ${plate}, name: ${name}, source: ${source}, gateId: ${gateId}`,
@@ -63,6 +66,7 @@ export class QueueService {
         source,
         gateId,
         preferredContactMethod,
+        isToyotaCustomer,
       },
     );
 
@@ -82,6 +86,8 @@ export class QueueService {
       preferredContactMethod,
       status: 'WAITING',
       createdAt: new Date(),
+      isToyotaCustomer,
+      IsToyotaCustomer: isToyotaCustomer,
     };
 
     this.tickets.push(ticket);

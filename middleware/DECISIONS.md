@@ -333,6 +333,14 @@ does not cache; the right shape is a decorating `ITtsAdapter`. Scope-deferred.
 
 **Alternative:** Hardcode mock gate locations ("Toyota Service Entrance", etc.). Rejected — hardcoding domain metadata inside service code creates tight coupling and false assumptions.
 
+### DR-027 — `isToyotaCustomer` / `IsToyotaCustomer` field handling and default
+
+**Decision:** Added both `isToyotaCustomer: boolean` and `IsToyotaCustomer: boolean` to `QueueTicket` and `CheckInRequestDto`. In `CheckInService.submit()`, the value is read from `request.isToyotaCustomer ?? request.IsToyotaCustomer ?? false` and forwarded to `QueueService.enqueue()`.
+
+**Why:** The contract specifies `IsToyotaCustomer: boolean` on `QueueTicket` (`true` = Toyota Customer, `false` = New Customer). Supporting both camelCase (`isToyotaCustomer`) and PascalCase (`IsToyotaCustomer`) ensures seamless compatibility with TypeScript conventions as well as frontend expectations (`ticket.IsToyotaCustomer` in `CustomerTable.tsx`). In `CheckInService.submit()`, if the caller does not provide the flag, it safely defaults to `false` (new customer) because `CheckInService` does not directly re-query `SapService` during ticket creation.
+
+**Alternative:** Force synchronous SAP query inside `CheckInService.submit()`. Rejected — check-in submission must remain fast and resilient; SAP lookup already occurs upstream at the gate entry flow.
+
 ---
 
 ## Open items (MB series)

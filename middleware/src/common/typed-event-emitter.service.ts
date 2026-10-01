@@ -16,6 +16,8 @@ export interface CheckinSubmittedPayload {
   preferredContactMethod: CheckInRequestDto['preferredContactMethod'];
   queueEntryId: string;
   contactMethod?: ContactMethod | null;
+  isToyotaCustomer?: boolean;
+  IsToyotaCustomer?: boolean;
 }
 
 export interface ContactOutcomePayload {

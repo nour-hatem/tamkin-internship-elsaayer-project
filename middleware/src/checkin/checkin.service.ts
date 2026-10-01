@@ -54,6 +54,9 @@ export class CheckInService {
       return result;
     }
 
+    const isToyotaCustomer =
+      request.isToyotaCustomer ?? request.IsToyotaCustomer ?? false;
+
     // 2. Queue enqueue
     const ticket = await this.queueService.enqueue(
       request.gateId,
@@ -62,6 +65,7 @@ export class CheckInService {
       request.phone,
       request.source,
       request.preferredContactMethod,
+      isToyotaCustomer,
     );
 
     // Notify listeners that the check-in was submitted.
@@ -73,6 +77,8 @@ export class CheckInService {
       source: request.source,
       preferredContactMethod: request.preferredContactMethod,
       queueEntryId: ticket.ticketId,
+      isToyotaCustomer,
+      IsToyotaCustomer: isToyotaCustomer,
     });
 
     // 3. Gate-open rate limit
