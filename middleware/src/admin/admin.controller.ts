@@ -1,5 +1,5 @@
 import { Controller, Get, Param } from '@nestjs/common';
-import { AdminService, GateEntry } from './admin.service';
+import { AdminService, GateInfo } from './admin.service';
 import { QueueTicket } from 'src/queue/queue.service';
 
 @Controller('admin')
@@ -8,8 +8,8 @@ export class AdminController {
 
   /** GET /admin/gates — list all currently connected gates */
   @Get('gates')
-  getConnectedGates(): GateEntry[] {
-    return this.adminService.getConnectedGates();
+  getConnectedGates(): { gates: GateInfo[] } {
+    return { gates: this.adminService.getConnectedGates() };
   }
 
   /** GET /admin/gates/:gateId/queue — tickets in queue for a specific gate */

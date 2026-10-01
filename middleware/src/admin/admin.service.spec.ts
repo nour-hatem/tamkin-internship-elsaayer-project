@@ -36,7 +36,10 @@ describe('AdminService', () => {
     const gates = service.getConnectedGates();
     expect(gates).toHaveLength(1);
     expect(gates[0]).toMatchObject({
+      id: 'gate-1',
       gateId: 'gate-1',
+      name: 'Gate 1',
+      location: '',
       socketId: 'sock-a',
       connectedAt: ts,
     });

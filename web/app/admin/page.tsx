@@ -37,10 +37,11 @@ export default function AdminPage() {
     fetch(`${API_URL}/admin/gates`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json() as Promise<GateEntry[]>;
+        return r.json();
       })
       .then((data) => {
-        setGates(data);
+        const list = Array.isArray(data) ? data : (data.gates || []);
+        setGates(list);
         setLoading(false);
       })
       .catch((err) => {

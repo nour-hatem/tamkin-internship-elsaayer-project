@@ -325,6 +325,16 @@ does not cache; the right shape is a decorating `ITtsAdapter`. Scope-deferred.
 
 ---
 
+### DR-026 — GateInfo contract shape & name/location stubbing
+
+**Decision:** `GET /admin/gates` returns `{ gates: GateInfo[] }` where each gate includes `id: string`, `name: string`, and `location: string`. The gate `name` is derived deterministically from `gateId` (e.g., `"gate-1"` $\rightarrow$ `"Gate 1"`), and `location` is initialized to `""` as a placeholder.
+
+**Why:** The contract specifies `{ gates: { id: string, name: string, location: string }[] }`. Currently, the backend has no persistent gate registry service providing human-readable names or physical location metadata. Deriving the name from `gateId` and stubbing `location` fulfills the contract schema without hardcoding artificial values, and serves as a placeholder until a dedicated GateRegistry is integrated.
+
+**Alternative:** Hardcode mock gate locations ("Toyota Service Entrance", etc.). Rejected — hardcoding domain metadata inside service code creates tight coupling and false assumptions.
+
+---
+
 ## Open items (MB series)
 
 ### MB-005 — `AdminService` in-memory gate state does not survive process restart
