@@ -21,6 +21,7 @@ within `middleware/src/ai/**`.
 | **Gate injection fix** | `KioskService` | ✅ Injects `GateService` instead of raw adapter | `kiosk/kiosk.service.spec.ts` |
 | **Structured logging** | `LoggerModule` | ✅ pino dual-sink (stdout pretty/JSON + daily file rotation) | `common/logger/logger.service.spec.ts` |
 | **Admin backend** | `AdminModule` | ✅ Gate tracking + REST endpoints + domain events | `admin/admin.service.spec.ts` |
+| **Admin gateway** | `AdminGateway` | ✅ Socket.IO /gate namespace + ticket event broadcasting | `admin/admin.gateway.spec.ts` |
 | **Admin frontend** | `web/app/admin` | ✅ Connected Gates screen (REST + socket real-time) | — (Next.js page) |
 
 ---
@@ -52,35 +53,39 @@ Ran all test suites.
 
 ---
 
-### Real test output (2026-10-01) — Week 3
+### Real test output (2026-10-02) — Contract Alignment
 
 Ran via: `cd middleware && npm test`
 Jest: 29.7.0
 Branch: `feature/admin-dashboard-backend`
 
 ```
-PASS src/ai/config/ai-config.service.spec.ts (6.358 s)
-PASS src/ai/nlu/nlu-rules.adapter.spec.ts (6.413 s)
-PASS src/ai/stt/elevenlabs-stt.adapter.spec.ts (6.243 s)
-PASS src/ai/tts/elevenlabs-tts.adapter.spec.ts (6.592 s)
-PASS src/ai/llm/llm-nlu.adapter.spec.ts (6.407 s)
-PASS src/common/logger/logger.service.spec.ts (6.226 s)
-PASS src/admin/admin.service.spec.ts (6.282 s)
-PASS src/qr/qr.service.spec.ts (6.772 s)
-PASS src/kiosk/kiosk.service.spec.ts (6.966 s)
+PASS src/ai/config/ai-config.service.spec.ts (9.646 s)
+PASS src/ai/nlu/nlu-rules.adapter.spec.ts (10.128 s)
+PASS src/ai/stt/elevenlabs-stt.adapter.spec.ts (10.204 s)
+PASS src/admin/admin.gateway.spec.ts (10.322 s)
+PASS src/ai/llm/llm-nlu.adapter.spec.ts (10.272 s)
+PASS src/ai/tts/elevenlabs-tts.adapter.spec.ts (10.385 s)
+PASS src/queue/queue.service.spec.ts (10.384 s)
+PASS src/kiosk/kiosk.service.spec.ts (10.643 s)
+PASS src/admin/admin.service.spec.ts (10.66 s)
+PASS src/qr/qr.service.spec.ts (10.847 s)
+PASS src/common/logger/logger.service.spec.ts (10.814 s)
 
-Test Suites: 9 passed, 9 total
-Tests:       164 passed, 164 total
+Test Suites: 11 passed, 11 total
+Tests:       172 passed, 172 total
 Snapshots:   0 total
-Time:        7.819 s
+Time:        12.037 s
 Ran all test suites.
 ```
 
-**Delta from Week 2:** +2 suites (+1 `logger.service.spec.ts`, +1 `admin.service.spec.ts`), +10 tests.
+**Delta from Week 2:** +4 suites (+1 `logger.service.spec.ts`, +1 `admin.service.spec.ts`, +1 `queue.service.spec.ts`, +1 `admin.gateway.spec.ts`), +18 tests.
 
-#### New suites added in Week 3
+#### New suites added
 
 | Suite | Tests | What it covers |
 |---|---|---|
 | `common/logger/logger.service.spec.ts` | 2 | Structured JSON output, correlationId propagation via AsyncLocalStorage |
-| `admin/admin.service.spec.ts` | 8 | Gate connect, disconnect, multi-gate partial disconnect, reconnect overwrite, `getGateQueue` filter, `getGateQueue` empty, `getFullQueue` delegation |
+| `admin/admin.service.spec.ts` | 9 | Gate connect, GateInfo contract shape, disconnect, multi-gate partial disconnect, reconnect overwrite, `getGateQueue` filter, `getGateQueue` empty, `getFullQueue` delegation |
+| `queue/queue.service.spec.ts` | 3 | `isToyotaCustomer: true` when found in SAP, `isToyotaCustomer: false` when not found, default to false |
+| `admin/admin.gateway.spec.ts` | 4 | `joinGate`, `leaveGate`, `QUEUE_TICKET_ADDED` broadcast, `QUEUE_TICKET_STATUS_UPDATED` broadcast |
