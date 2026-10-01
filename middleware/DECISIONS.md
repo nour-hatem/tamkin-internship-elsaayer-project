@@ -341,6 +341,14 @@ does not cache; the right shape is a decorating `ITtsAdapter`. Scope-deferred.
 
 **Alternative:** Force synchronous SAP query inside `CheckInService.submit()`. Rejected — check-in submission must remain fast and resilient; SAP lookup already occurs upstream at the gate entry flow.
 
+### DR-028 — `QUEUE_TICKET_ADDED` & `QUEUE_TICKET_STATUS_UPDATED` domain events and `/gate` gateway
+
+**Decision:** Added `QUEUE_TICKET_ADDED` and `QUEUE_TICKET_STATUS_UPDATED` domain events emitted by `QueueService` on ticket creation (`enqueue`) and every status modification (`updateTicketStatus`, `callNextCandidate`, `handleContactAck`, `handleContactTimeout`). Dedicated `AdminGateway` on namespace `/gate` handles room subscription (`joinGate`/`leaveGate`) and broadcasts `QUEUE_TICKET_ADDED { ticket }` and `QUEUE_TICKET_STATUS_UPDATED { ticketId, status }` to `gate:{gateId}`.
+
+**Why:** The contract specifies real-time queue updates over Socket.IO on namespace `/gate` in rooms `gate:{gateId}`. Separating internal domain events (emitted across the NestJS event bus) from the WebSocket gateway ensures low coupling and keeps `QueueService` agnostic of socket transports.
+
+**Alternative:** Directly inject `AdminGateway` or `Server` into `QueueService`. Rejected — coupling business logic in `QueueService` to WebSocket server references creates transport dependencies and complicates testing.
+
 ---
 
 ## Open items (MB series)

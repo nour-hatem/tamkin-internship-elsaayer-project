@@ -49,6 +49,8 @@ export interface EventPayloadMap {
   [EVENTS.GATE_CONNECTED]: { gateId: string; socketId: string; timestamp: Date };
   [EVENTS.GATE_DISCONNECTED]: { gateId: string; socketId: string; timestamp: Date };
   [EVENTS.QUEUE_UPDATED]: { gateId: string; ticketId: string; status: string };
+  [EVENTS.QUEUE_TICKET_ADDED]: { ticket: any };
+  [EVENTS.QUEUE_TICKET_STATUS_UPDATED]: { ticketId: string; gateId: string; status: string };
 }
 
 @Injectable()

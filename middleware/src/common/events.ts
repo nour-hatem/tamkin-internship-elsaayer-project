@@ -16,6 +16,9 @@ export const EVENTS = {
   GATE_CONNECTED: 'gate.connected',
   GATE_DISCONNECTED: 'gate.disconnected',
   QUEUE_UPDATED: 'queue.updated',
+
+  QUEUE_TICKET_ADDED: 'queue.ticket.added',
+  QUEUE_TICKET_STATUS_UPDATED: 'queue.ticket.status.updated',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];

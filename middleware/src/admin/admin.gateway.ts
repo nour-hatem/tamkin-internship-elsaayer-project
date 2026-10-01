@@ -11,6 +11,7 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { QueueTicket, QueueTicketStatus } from '../queue/queue.service';
+import { EVENTS } from '../common/events';
 
 @WebSocketGateway({
   namespace: '/gate',
@@ -64,7 +65,7 @@ export class AdminGateway
     return { event: 'left', gateId };
   }
 
-  @OnEvent('queue.ticket.added')
+  @OnEvent(EVENTS.QUEUE_TICKET_ADDED)
   handleQueueTicketAdded(payload: { ticket: QueueTicket }) {
     if (!payload?.ticket) return;
     const roomName = `gate:${payload.ticket.gateId}`;
@@ -76,7 +77,7 @@ export class AdminGateway
     });
   }
 
-  @OnEvent('queue.ticket.status.updated')
+  @OnEvent(EVENTS.QUEUE_TICKET_STATUS_UPDATED)
   handleQueueTicketStatusUpdated(payload: {
     ticketId: string;
     gateId: string;

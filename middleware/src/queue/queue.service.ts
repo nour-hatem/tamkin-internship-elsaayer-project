@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ContactMethod } from '../ai';
 import { EVENTS } from '../common/events';
 import type { ContactOutcomePayload } from '../common/typed-event-emitter.service';
@@ -49,6 +49,19 @@ export class QueueService {
   private ticketCounter = 1000;
   private queueNumberCounter = 0;
 
+  constructor(
+    @Optional()
+    private readonly eventEmitter?: EventEmitter2,
+  ) {}
+
+  private emitStatusUpdated(ticket: QueueTicket): void {
+    this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_STATUS_UPDATED, {
+      ticketId: ticket.ticketId,
+      gateId: ticket.gateId,
+      status: ticket.status,
+    });
+  }
+
   async enqueue(
     gateId: string,
     plate: string,
@@ -92,6 +105,10 @@ export class QueueService {
 
     this.tickets.push(ticket);
 
+    this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_ADDED, {
+      ticket,
+    });
+
     this.logger.log(
       `[Queue] Queue ticket created: ${ticketId} (#${ticket.queueNumber}) for plate: ${plate}, name: ${name}, source: ${source}`,
       {
@@ -133,6 +150,7 @@ export class QueueService {
     }
 
     ticket.status = status;
+    this.emitStatusUpdated(ticket);
 
     this.logger.log(
       `[QueueService] Ticket ${ticket.ticketId} (#${ticket.queueNumber}) status changed to ${status}`,
@@ -260,6 +278,7 @@ export class QueueService {
     }
 
     ticket.status = 'CALLED';
+    this.emitStatusUpdated(ticket);
 
     rotation.attempts += 1;
 
@@ -322,6 +341,7 @@ export class QueueService {
     }
 
     ticket.status = 'ACKNOWLEDGED';
+    this.emitStatusUpdated(ticket);
     slot.status = 'OCCUPIED';
 
     this.rotations.delete(slotId);
@@ -385,6 +405,7 @@ export class QueueService {
     );
 
     currentTicket.status = 'WAITING';
+    this.emitStatusUpdated(currentTicket);
 
     rotation.currentIndex = (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
 
