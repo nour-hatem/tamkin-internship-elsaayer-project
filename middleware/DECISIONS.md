@@ -221,3 +221,142 @@ does not cache; the right shape is a decorating `ITtsAdapter`. Scope-deferred.
 - Extended `QueueService.enqueue()` and `QueueTicket` to store `contactMethod`.
 - In `kiosk.service.ts`, passed `session.contactMethod` into `checkinService.submit()` so it is recorded on the ticket and published in events.
 
+---
+
+## 2026-09-30 — Week 3: DI Fixes, Structured Logging, Admin Module, Connected Gates UI
+
+### DR-016 — Replace string DI tokens with canonical constants from port files
+
+**Decision:** Replace the four raw string literals (`'ITtsAdapter'`, `'ISttAdapter'`, `'INluAdapter'`, `'IGateAdapter'`) in `KioskModule` with the token constants exported from each port file (`TTS_ADAPTER_TOKEN`, `STT_ADAPTER_TOKEN`, `NLU_ADAPTER_TOKEN`, `GATE_ADAPTER_TOKEN`).
+
+**Why:** The string literals were a typo-prone local copy of the canonical constants. A mismatch (e.g. `'ITtsAdapter'` instead of `'TTS_ADAPTER_TOKEN'`) causes silent DI failures at runtime because NestJS resolves providers by token identity. The canonical constants in the port files are the single source of truth.
+
+**Alternative:** Leave string literals in place and ensure they match by convention. Rejected — convention-only correctness breaks silently and is not verifiable by the compiler.
+
+---
+
+### DR-017 — Inject `GateService` instead of raw `IGateAdapter` in `KioskService`
+
+**Decision:** Changed `KioskService` to inject `GateService` (the concrete class, no `@Inject` decorator needed) instead of injecting `GATE_ADAPTER_TOKEN` directly.
+
+**Why:** `GateService` owns the 5-second auto-close timer and the 30-second Redis rate-limit guard. Injecting the raw adapter bypasses both. No business logic changed — the call site switches from `this.gateAdapter.openGate(gateId)` to `this.gateService.openGate(gateId)`.
+
+**Alternative:** Keep raw adapter injection and duplicate the timer/rate-limit logic in `KioskService`. Rejected — duplicating infrastructure-level guards in a feature service creates drift and is outside Nour's scope.
+
+---
+
+### DR-018 — Structured logging: pino over winston
+
+**Decision:** Use `pino` (with `pino-pretty` for dev, `pino-roll` for daily file rotation) rather than `winston`.
+
+**Why:** pino is measurably faster (synchronous JSON serialisation vs winston's stream pipeline), is the de-facto standard for NestJS production deployments, and its transport model (stdout + file stream) maps cleanly to the dual-sink requirement. `pino-roll` gives daily rotation with file-count retention without a third-party cron.
+
+**Alternative:** `winston` with `winston-daily-rotate-file`. Would work but adds more dependencies, is slower (benchmarks: 5-10× at high throughput), and is less idiomatic for NestJS.
+
+---
+
+### DR-019 — Log placement: flow boundaries only, not every service call
+
+**Decision:** Added structured log lines only at the entry and exit of the six named critical flows (LPR read, SAP lookup, check-in submit, gate open, queue enqueue, queue rotation). Did not add logs inside helper methods, validators, or DTO constructors.
+
+**Why:** The requirement was "enough context to trace a customer journey end-to-end." Over-logging obscures signal with noise; the six boundary points are sufficient to reconstruct any customer path from `plate → SAP lookup → check-in → queue → gate open`.
+
+**Alternative:** Log every service method entry/exit. Rejected — creates log volume 10-20× higher with no meaningful traceability gain, and makes `queue.service.ts` (which already has complex async slot management) hard to read.
+
+---
+
+### DR-020 — `LoggerModule` is `@Global()`, not imported per-feature-module
+
+**Decision:** Decorated `LoggerModule` with `@Global()` so any module that needs `LoggerService` receives it without explicitly importing `LoggerModule`.
+
+**Why:** The logger is an infrastructure concern, not a feature concern. Every module in the app will eventually use it. Requiring an explicit import in every module is the same pattern NestJS itself uses for `ConfigModule.forRoot({ isGlobal: true })`.
+
+**Alternative:** Require each module to import `LoggerModule` explicitly. Rejected — creates import boilerplate in every module and makes it easy to forget for new modules added later.
+
+---
+
+### DR-021 — `AdminService` tracks gates in memory (`Map`), not Redis
+
+**Decision:** `AdminService.connectedGates` is a plain `Map<string, { socketId, connectedAt }>` in process memory.
+
+**Why:** Connected-gate state is ephemeral — it is fully reconstructed from socket events on each process start. There is no requirement to survive a server restart. Adding Redis for this would introduce a new infrastructure dependency for no durability benefit.
+
+**Alternative:** Store connected-gate state in Redis to survive restarts and support horizontal scaling. Deferred — not required by the current spec; flag for future if multi-instance deployment is needed (see MB-005).
+
+---
+
+### DR-022 — `getGateQueue` filters `getAllTickets()` by `gateId`, no dedicated method added to `QueueService`
+
+**Decision:** `AdminService.getGateQueue(gateId)` calls `QueueService.getAllTickets()` and filters client-side rather than adding a `getTicketsForGate(gateId)` method to `QueueService`.
+
+**Why:** `QueueService` is Rahma's file — adding a method would require her review and coordination. The ticket array is small (bounded by the number of active vehicles at any given time, typically < 50). In-memory filtering is negligible.
+
+**Alternative:** Add `QueueService.getTicketsForGate(gateId)`. Deferred pending Rahma's review — flag in MB-005 below.
+
+---
+
+### DR-023 — Socket.IO event names: `gate.connected` / `gate.disconnected` (dot-notation, lowercase)
+
+**Decision:** The Socket.IO events broadcast to the frontend are named `gate.connected` and `gate.disconnected` (dot-separator, all lowercase).
+
+**Why:** All existing Socket.IO events in this codebase use dot-notation lowercase (`checkin.display`, `sap.result`, `gate.state`, `kiosk.state`). Consistency with the existing naming convention makes the event list predictable.
+
+**Alternative:** Use `GATE_CONNECTED` / `GATE_DISCONNECTED` (the NestJS domain event names). Rejected — the domain event name is an internal bus identifier; the Socket.IO event name is part of a public protocol that must be readable and follow the established convention.
+
+---
+
+### DR-024 — Gate Socket.IO forwarding done in `KioskGateway`, not `AdminService`
+
+**Decision:** Added `@OnEvent(EVENTS.GATE_CONNECTED)` and `@OnEvent(EVENTS.GATE_DISCONNECTED)` handlers to `KioskGateway` to broadcast `gate.connected` / `gate.disconnected` as Socket.IO events. `AdminService` is not given a reference to the Socket.IO server.
+
+**Why:** `KioskGateway` already owns the `@WebSocketServer() server: Server` reference and has the established pattern of `@OnEvent` → `this.server.emit(...)` (see `handleCheckinDisplayUpdated`, `handleSapLookup`, `handleCheckInCompleted`). Injecting the server into `AdminService` would either require circular dependency resolution or an awkward shared gateway reference.
+
+**Alternative:** Inject `KioskGateway` into `AdminService` and call a method on the gateway. Rejected — creates a dependency from the admin feature module back onto the kiosk module, which is the wrong direction.
+
+---
+
+### DR-025 — Admin frontend: REST for initial state, socket for live updates
+
+**Decision:** `web/app/admin/page.tsx` fetches `GET /admin/gates` on mount for initial state and subscribes to `gate.connected` / `gate.disconnected` socket events for real-time updates. No polling.
+
+**Why:** Polling adds unnecessary load and latency. The socket subscriptions already deliver instant updates. The REST call on mount is needed because the socket connection may not yet have received all prior-connected gates at page load time.
+
+**Alternative:** Socket-only (join a room and receive a full state dump on connection). Rejected — requires a backend change to emit a state dump on connection, which is out of scope. REST + socket is the minimal-change approach.
+
+---
+
+### DR-026 — GateInfo contract shape & name/location stubbing
+
+**Decision:** `GET /admin/gates` returns `{ gates: GateInfo[] }` where each gate includes `id: string`, `name: string`, and `location: string`. The gate `name` is derived deterministically from `gateId` (e.g., `"gate-1"` $\rightarrow$ `"Gate 1"`), and `location` is initialized to `""` as a placeholder.
+
+**Why:** The contract specifies `{ gates: { id: string, name: string, location: string }[] }`. Currently, the backend has no persistent gate registry service providing human-readable names or physical location metadata. Deriving the name from `gateId` and stubbing `location` fulfills the contract schema without hardcoding artificial values, and serves as a placeholder until a dedicated GateRegistry is integrated.
+
+**Alternative:** Hardcode mock gate locations ("Toyota Service Entrance", etc.). Rejected — hardcoding domain metadata inside service code creates tight coupling and false assumptions.
+
+### DR-027 — `isToyotaCustomer` / `IsToyotaCustomer` field handling and default
+
+**Decision:** Added both `isToyotaCustomer: boolean` and `IsToyotaCustomer: boolean` to `QueueTicket` and `CheckInRequestDto`. In `CheckInService.submit()`, the value is read from `request.isToyotaCustomer ?? request.IsToyotaCustomer ?? false` and forwarded to `QueueService.enqueue()`.
+
+**Why:** The contract specifies `IsToyotaCustomer: boolean` on `QueueTicket` (`true` = Toyota Customer, `false` = New Customer). Supporting both camelCase (`isToyotaCustomer`) and PascalCase (`IsToyotaCustomer`) ensures seamless compatibility with TypeScript conventions as well as frontend expectations (`ticket.IsToyotaCustomer` in `CustomerTable.tsx`). In `CheckInService.submit()`, if the caller does not provide the flag, it safely defaults to `false` (new customer) because `CheckInService` does not directly re-query `SapService` during ticket creation.
+
+**Alternative:** Force synchronous SAP query inside `CheckInService.submit()`. Rejected — check-in submission must remain fast and resilient; SAP lookup already occurs upstream at the gate entry flow.
+
+### DR-028 — `QUEUE_TICKET_ADDED` & `QUEUE_TICKET_STATUS_UPDATED` domain events and `/gate` gateway
+
+**Decision:** Added `QUEUE_TICKET_ADDED` and `QUEUE_TICKET_STATUS_UPDATED` domain events emitted by `QueueService` on ticket creation (`enqueue`) and every status modification (`updateTicketStatus`, `callNextCandidate`, `handleContactAck`, `handleContactTimeout`). Dedicated `AdminGateway` on namespace `/gate` handles room subscription (`joinGate`/`leaveGate`) and broadcasts `QUEUE_TICKET_ADDED { ticket }` and `QUEUE_TICKET_STATUS_UPDATED { ticketId, status }` to `gate:{gateId}`.
+
+**Why:** The contract specifies real-time queue updates over Socket.IO on namespace `/gate` in rooms `gate:{gateId}`. Separating internal domain events (emitted across the NestJS event bus) from the WebSocket gateway ensures low coupling and keeps `QueueService` agnostic of socket transports.
+
+**Alternative:** Directly inject `AdminGateway` or `Server` into `QueueService`. Rejected — coupling business logic in `QueueService` to WebSocket server references creates transport dependencies and complicates testing.
+
+---
+
+## Open items (MB series)
+
+### MB-005 — `AdminService` in-memory gate state does not survive process restart
+
+If the middleware process restarts, `connectedGates` is empty until kiosk sockets reconnect and emit `GATE_CONNECTED`. For an MVP this is acceptable. For production, consider snapshotting to Redis or emitting a "current state" broadcast on reconnect.
+
+### MB-006 — `QueueService.getTicketsForGate(gateId)` not yet added
+
+`AdminService.getGateQueue` filters in memory. If ticket volume grows or Rahma adds gate-specific indexing to `QueueService`, this filter should move server-side.

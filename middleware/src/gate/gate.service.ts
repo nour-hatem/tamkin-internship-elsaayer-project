@@ -17,12 +17,17 @@ export class GateService {
   ) {}
 
   async openGate(gateId: string): Promise<boolean> {
-    this.logger.log(`Requesting gate open for gateId: ${gateId}`);
+    this.logger.log(`[Gate] Requesting gate open command for gate: ${gateId}`, {
+      gateId,
+    });
 
     const opened = await this.gateAdapter.openGate(gateId);
 
     if (!opened) {
-      this.logger.warn(`Gate failed to open for gateId: ${gateId}`);
+      this.logger.warn(`[Gate] Gate open command failed for gate: ${gateId}`, {
+        gateId,
+        success: false,
+      });
       return false;
     }
 
@@ -42,7 +47,11 @@ export class GateService {
     this.closeTimers.set(gateId, closeTimer);
 
     this.logger.log(
-      `Gate ${gateId} opened successfully. Auto-close scheduled in 5 seconds.`,
+      `[Gate] Gate open command successful for gate: ${gateId}. Auto-close scheduled in 5 seconds.`,
+      {
+        gateId,
+        success: true,
+      },
     );
 
     return true;
