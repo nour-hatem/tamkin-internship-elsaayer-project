@@ -196,3 +196,37 @@ export function subscribeToKioskState(
     s.off('kiosk.state', callback);
   };
 }
+
+/**
+ * Backend → Admin Dashboard
+ *
+ * Fires whenever a kiosk socket joins a gate room.
+ */
+export function subscribeToGateConnected(
+  callback: (payload: { gateId: string; connectedAt: string }) => void,
+): () => void {
+  const s = getSocket();
+
+  s.on('gate.connected', callback);
+
+  return () => {
+    s.off('gate.connected', callback);
+  };
+}
+
+/**
+ * Backend → Admin Dashboard
+ *
+ * Fires whenever a kiosk socket leaves a gate room.
+ */
+export function subscribeToGateDisconnected(
+  callback: (payload: { gateId: string }) => void,
+): () => void {
+  const s = getSocket();
+
+  s.on('gate.disconnected', callback);
+
+  return () => {
+    s.off('gate.disconnected', callback);
+  };
+}

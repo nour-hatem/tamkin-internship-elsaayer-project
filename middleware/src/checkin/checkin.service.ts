@@ -21,13 +21,27 @@ export class CheckInService {
 
   async submit(request: CheckInRequestDto): Promise<CheckInResultDto> {
     this.logger.log(
-      `Processing check-in request for plate: ${request.plate} via ${request.source}`,
+      `[CheckIn] Check-in submitted: plate ${request.plate}, source ${request.source}, contactMethod ${request.preferredContactMethod}, gateId ${request.gateId}`,
+      {
+        plate: request.plate,
+        source: request.source,
+        contactMethod: request.preferredContactMethod,
+        gateId: request.gateId,
+      },
     );
 
     // 1. Duplicate check
     const existingTicket = await this.queueService.getActiveTicketForPlate(request.plate);
 
     if (existingTicket) {
+      this.logger.warn(
+        `[CheckIn] Check-in rejected (already checked in): plate ${request.plate}, ticketId ${existingTicket.ticketId}`,
+        {
+          plate: request.plate,
+          ticketId: existingTicket.ticketId,
+        },
+      );
+
       const result: CheckInResultDto = {
         success: false,
         gateOpened: false,
@@ -41,6 +55,9 @@ export class CheckInService {
       return result;
     }
 
+    const isToyotaCustomer =
+      request.isToyotaCustomer??request.IsToyotaCustomer ?? false;
+
     // 2. Queue enqueue
     const ticket = await this.queueService.enqueue(
       request.gateId,
@@ -49,7 +66,7 @@ export class CheckInService {
       request.phone,
       request.source,
       request.preferredContactMethod,
-      request.IsToyotaCustomer
+      isToyotaCustomer,
     );
 
     // Notify listeners that the check-in was submitted.
@@ -61,6 +78,8 @@ export class CheckInService {
       source: request.source,
       preferredContactMethod: request.preferredContactMethod,
       queueEntryId: ticket.ticketId,
+      isToyotaCustomer,
+      IsToyotaCustomer: isToyotaCustomer,
     });
 
     // 3. Gate-open rate limit
@@ -77,6 +96,11 @@ export class CheckInService {
     } else {
       this.logger.log(
         `Gate ${request.gateId} is rate-limited. Check-in ${ticket.ticketId} remains queued.`,
+        {
+          gateId: request.gateId,
+          ticketId: ticket.ticketId,
+          plate: request.plate,
+        },
       );
     }
 
@@ -90,7 +114,15 @@ export class CheckInService {
     : 'Check-in recorded and queued. Gate is currently rate-limited.',
 };
 
-    this.logger.log(`Check-in complete: Ticket ${ticket.ticketId}, Gate Opened: ${gateOpened}`);
+    this.logger.log(
+      `[CheckIn] Check-in completed: Ticket ${ticket.ticketId}, plate ${request.plate}, gateId ${request.gateId}, gateOpened ${gateOpened}`,
+      {
+        ticketId: ticket.ticketId,
+        plate: request.plate,
+        gateId: request.gateId,
+        gateOpened,
+      },
+    );
 
     this.eventEmitter.emit(EVENTS.CHECKIN_COMPLETED, result);
 
