@@ -14,9 +14,16 @@ export class LprService {
   ) {}
 
   async readFromLpr(plateNo: string, gateId: string): Promise<PlateReadDto> {
-    this.logger.log(`Triggering LPR read for plate: ${plateNo}, gate: ${gateId}`);
+    this.logger.log(`[LPR] Started plate read for plate: ${plateNo}, gate: ${gateId}`, {
+      plate: plateNo,
+      gateId,
+    });
     const dto = await this.lprAdapter.readPlate(plateNo, gateId);
     this.eventEmitter.emit(EVENTS.PLATE_READ, dto);
+    this.logger.log(`[LPR] Plate read completed for plate: ${dto.plateNo}, gate: ${dto.gateId}`, {
+      plate: dto.plateNo,
+      gateId: dto.gateId,
+    });
     return dto;
   }
 }

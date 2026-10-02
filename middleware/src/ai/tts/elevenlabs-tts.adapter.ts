@@ -130,20 +130,6 @@ export class ElevenLabsTtsAdapter implements ITtsAdapter {
 
 // CHANGED: Convert each digit to its Arabic spoken equivalent.
 // Example: "010123" → "صفر واحد صفر واحد اثنان ثلاثة"
-
-  //  async synthesize(text: string): Promise<Buffer> {
-  //   const audioPath = join(
-  //     process.cwd(),
-  //     'assets',
-  //     'fake-greeting.mp3',
-  //   );
-
-  //   this.logger.log(
-  //     `[Stub TTS] Returning fake greeting audio for: "${text}"`,
-  //   );
-
-  //   return fs.readFile(audioPath);
-  // }
 }
 
 const errorMessage = (error: unknown): string =>

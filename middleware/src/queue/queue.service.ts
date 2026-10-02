@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ContactMethod } from '../ai';
 import { EVENTS } from '../common/events';
 import type { ContactOutcomePayload } from '../common/typed-event-emitter.service';
@@ -20,6 +20,8 @@ export interface QueueTicket {
   preferredContactMethod: ContactMethod;
   status: QueueTicketStatus;
   createdAt: Date;
+  isToyotaCustomer: boolean;
+  IsToyotaCustomer: boolean;
 }
 
 export interface QueueSlot {
@@ -47,6 +49,19 @@ export class QueueService {
   private ticketCounter = 1000;
   private queueNumberCounter = 0;
 
+  constructor(
+    @Optional()
+    private readonly eventEmitter?: EventEmitter2,
+  ) {}
+
+  private emitStatusUpdated(ticket: QueueTicket): void {
+    this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_STATUS_UPDATED, {
+      ticketId: ticket.ticketId,
+      gateId: ticket.gateId,
+      status: ticket.status,
+    });
+  }
+
   async enqueue(
     gateId: string,
     plate: string,
@@ -54,7 +69,20 @@ export class QueueService {
     phone: string,
     source: 'QR' | 'VOICE',
     preferredContactMethod: ContactMethod,
+    isToyotaCustomer: boolean = false,
   ): Promise<QueueTicket> {
+    this.logger.log(
+      `[Queue] Creating queue ticket for plate: ${plate}, name: ${name}, source: ${source}, gateId: ${gateId}`,
+      {
+        plate,
+        name,
+        source,
+        gateId,
+        preferredContactMethod,
+        isToyotaCustomer,
+      },
+    );
+
     this.ticketCounter += 1;
     this.queueNumberCounter += 1;
 
@@ -71,12 +99,26 @@ export class QueueService {
       preferredContactMethod,
       status: 'WAITING',
       createdAt: new Date(),
+      isToyotaCustomer,
+      IsToyotaCustomer: isToyotaCustomer,
     };
 
     this.tickets.push(ticket);
 
+    this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_ADDED, {
+      ticket,
+    });
+
     this.logger.log(
-      `[QueueService] Queue #${ticket.queueNumber} created: ${ticketId} for ${name} (${plate}) via ${source}`,
+      `[Queue] Queue ticket created: ${ticketId} (#${ticket.queueNumber}) for plate: ${plate}, name: ${name}, source: ${source}`,
+      {
+        ticketId: ticket.ticketId,
+        plate: ticket.plate,
+        queueNumber: ticket.queueNumber,
+        gateId: ticket.gateId,
+        source: ticket.source,
+        preferredContactMethod: ticket.preferredContactMethod,
+      },
     );
 
     return ticket;
@@ -108,6 +150,7 @@ export class QueueService {
     }
 
     ticket.status = status;
+    this.emitStatusUpdated(ticket);
 
     this.logger.log(
       `[QueueService] Ticket ${ticket.ticketId} (#${ticket.queueNumber}) status changed to ${status}`,
@@ -199,6 +242,17 @@ export class QueueService {
 
     this.rotations.set(slotId, rotation);
 
+    this.logger.log(
+      `[Queue] Queue rotation triggered: slotId ${slotId}, candidate count ${candidates.length}, attempts ${rotation.attempts}`,
+      {
+        slotId,
+        gateId,
+        candidateCount: candidates.length,
+        candidateTicketIds: rotation.candidateTicketIds,
+        attempts: rotation.attempts,
+      },
+    );
+
     const selectedTicket = await this.callNextCandidate(slotId);
 
     return {
@@ -224,14 +278,22 @@ export class QueueService {
     }
 
     ticket.status = 'CALLED';
+    this.emitStatusUpdated(ticket);
 
     rotation.attempts += 1;
 
     this.logger.log(
-      `[QueueService] Contact attempt ${rotation.attempts}/${this.MAX_CONTACT_ATTEMPTS} for Queue #${ticket.queueNumber}`,
+      `[Queue] Queue rotation candidate called: slotId ${slotId}, ticketId ${ticket.ticketId}, plate ${ticket.plate}, queueNumber ${ticket.queueNumber}, attempt ${rotation.attempts}/${this.MAX_CONTACT_ATTEMPTS}, method ${ticket.preferredContactMethod}`,
+      {
+        slotId,
+        ticketId: ticket.ticketId,
+        plate: ticket.plate,
+        queueNumber: ticket.queueNumber,
+        attemptCount: rotation.attempts,
+        maxAttempts: this.MAX_CONTACT_ATTEMPTS,
+        contactMethod: ticket.preferredContactMethod,
+      },
     );
-
-    this.logger.log(`[QueueService] Contact method: ${ticket.preferredContactMethod}`);
 
     return ticket;
   }
@@ -279,6 +341,7 @@ export class QueueService {
     }
 
     ticket.status = 'ACKNOWLEDGED';
+    this.emitStatusUpdated(ticket);
     slot.status = 'OCCUPIED';
 
     this.rotations.delete(slotId);
@@ -330,7 +393,19 @@ export class QueueService {
       return;
     }
 
+    this.logger.log(
+      `[Queue] Queue rotation timeout triggered: slotId ${slotId}, ticketId ${ticketId}, plate ${currentTicket.plate}, queueNumber ${currentTicket.queueNumber}`,
+      {
+        slotId,
+        ticketId,
+        plate: currentTicket.plate,
+        queueNumber: currentTicket.queueNumber,
+        previousAttempts: rotation.attempts,
+      },
+    );
+
     currentTicket.status = 'WAITING';
+    this.emitStatusUpdated(currentTicket);
 
     rotation.currentIndex = (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
 
@@ -345,7 +420,13 @@ export class QueueService {
     const nextTicket = await this.callNextCandidate(slotId);
 
     this.logger.log(
-      `[QueueService] Queue #${currentTicket.queueNumber} timed out. Rotating to Queue #${nextTicket?.queueNumber ?? 'none'}`,
+      `[Queue] Queue rotation advanced: slotId ${slotId}, timed-out ticket ${currentTicket.ticketId} (plate ${currentTicket.plate}), next candidate ticket ${nextTicket?.ticketId ?? 'none'}`,
+      {
+        slotId,
+        timedOutTicketId: currentTicket.ticketId,
+        timedOutPlate: currentTicket.plate,
+        nextTicketId: nextTicket?.ticketId ?? null,
+      },
     );
   }
 
