@@ -53,3 +53,6 @@ export class QueueController {
     return this.queueService.simulateAck(dto.slotId, dto.acknowledged);
   }
 }
+
+
+

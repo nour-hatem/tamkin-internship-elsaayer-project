@@ -26,7 +26,7 @@ export interface KioskInputPayload {
 
 export function getSocket(): Socket {
   if (!socket) {
-    socket = io(WS_URL, {
+    socket = io(`${WS_URL}/kiosk`, {
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: Infinity,

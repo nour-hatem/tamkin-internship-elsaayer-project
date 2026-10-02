@@ -15,6 +15,7 @@ type TicketData = {
   name?: string;
   phone?: string;
   source: 'GENERIC' | 'LPR' | 'SAP';
+  contactMethod:ContactMethod
 };
 
 type CheckinFormProps = {

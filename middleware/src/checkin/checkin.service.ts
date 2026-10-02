@@ -46,6 +46,7 @@ export class CheckInService {
         success: false,
         gateOpened: false,
         queueEntryId: existingTicket.ticketId,
+        phone:existingTicket.phone,
         reason: `Customer with plate ${request.plate} is already checked in (Ticket: ${existingTicket.ticketId})`,
       };
 
@@ -55,7 +56,7 @@ export class CheckInService {
     }
 
     const isToyotaCustomer =
-      request.isToyotaCustomer ?? request.IsToyotaCustomer ?? false;
+      request.isToyotaCustomer??request.IsToyotaCustomer ?? false;
 
     // 2. Queue enqueue
     const ticket = await this.queueService.enqueue(
@@ -103,14 +104,15 @@ export class CheckInService {
       );
     }
 
-    const result: CheckInResultDto = {
-      success: true,
-      gateOpened,
-      queueEntryId: ticket.ticketId,
-      reason: gateOpened
-        ? 'Check-in successful, gate opened.'
-        : 'Check-in recorded and queued. Gate is currently rate-limited.',
-    };
+   const result: CheckInResultDto = {
+  success: true,
+  gateOpened,
+  queueEntryId: ticket.ticketId,
+  phone: request.phone,
+  reason: gateOpened
+    ? 'Check-in successful, gate opened.'
+    : 'Check-in recorded and queued. Gate is currently rate-limited.',
+};
 
     this.logger.log(
       `[CheckIn] Check-in completed: Ticket ${ticket.ticketId}, plate ${request.plate}, gateId ${request.gateId}, gateOpened ${gateOpened}`,

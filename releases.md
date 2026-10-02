@@ -1,5 +1,246 @@
 # Releases
 
+## [2026-10-01] feat(admin): replace mock data with API & real-time queue updates
+
+**By:** Sara
+
+### Changes
+
+* Removed `admin-mock` data from the Admin Dashboard.
+* Removed connected/offline gate statistics; gate connection status is handled by Nour.
+* Added API integration:
+  * `GET /admin/gates`
+  * `GET /admin/queue`
+  * `GET /admin/gates/:gateId/queue`
+* Added loading and error states.
+* Dashboard statistics are now calculated from queue tickets:
+  * `WAITING` → Waiting Customers
+  * `CALLED` → Called Customers
+  * `IN_SERVICE` → Currently In Service
+* Gate cards now display gate name, location, and waiting customers.
+* Waiting customers per gate are filtered by `gateId` and `WAITING` status.
+### Queue & Customers
+* Replaced mock data with `GET /admin/gates/:gateId/queue`.
+* Added `isToyotaCustomer` to `QueueTicket`.
+  * `true` → Toyota Customer
+  * `false` → New Customer
+* Queue page shows only:
+  * `WAITING`
+  * `CALLED`
+  * `ACKNOWLEDGED`
+  * `IN_SERVICE`
+* Customers page displays all returned tickets without status filtering.
+* Removed vehicle information from the tables.
+* Added phone number to the ticket hover information.
+### Socket.IO
+* Added `src/lib/gateSocket.ts`.
+* Connected to the `/gate` namespace.
+* Added gate rooms using `gate:{gateId}`.
+* Added:
+  * `joinGate`
+  * `leaveGate`
+  * `QUEUE_TICKET_ADDED`
+  * `QUEUE_TICKET_STATUS_UPDATED`
+* Queue and Customers pages now receive ticket additions and status updates in real time.
+### QueueTicket
+```ts
+export interface QueueTicket {
+  ticketId: string;
+  queueNumber: number;
+  gateId: string;
+  plate: string;
+  name: string;
+  phone: string;
+  source: "QR" | "VOICE";
+  preferredContactMethod: ContactMethod;
+  IsToyotaCustomer: boolean;
+  status: QueueTicketStatus;
+  createdAt: Date | string;
+}
+```
+### StatusBadge
+Added support for:
+```text
+WAITING
+CALLED
+ACKNOWLEDGED
+IN_SERVICE
+COMPLETED
+SKIPPED
+TOYOTA_CUSTOMER
+NEW_CUSTOMER
+```
+### Temporary Testing
+Created temporary backend mock responses for:
+GET /admin/gates
+GET /admin/queue
+GET /admin/gates/:gateId/queue
+
+## [2026-09-22] feat(kiosk-redis): cache static TTS prompts in Redis (7-day TTL)
+
+**By:** Sara
+
+**Requested:** Cache the audio for the kiosk's fixed (non-interpolated) voice prompts in Redis, keyed uniquely per message with a language suffix, so repeated requests reuse the cached TTS audio instead of re-synthesizing it every time.
+
+**Changes:**
+
+- Added `kiosk.redis.ts` — `KioskRedisService`, wrapping the existing `RedisService` client with kiosk-specific caching:
+  - `KioskMessageKey` enum names the 6 static prompts: `NAME_ASKING`, `PHONE_ASKING`, `CONFIRMATION_BUTTONS`, `PHONE_KEYBOARD`, `CONTACT_METHOD_ASKING`, `CONTACT_METHOD_BUTTONS`.
+  - Redis key format: `kiosk:tts:{message-key}-{ar|en}` (e.g. `kiosk:tts:name-asking-ar`).
+  - `getCachedAudio` / `setCachedAudio` use `getBuffer` / `set` (binary-safe) rather than the string-based `get`, since TTS output is audio, not text.
+  - `setCachedAudio` sets a 7-day expiry (`EX`); an unused entry ages out and regenerates automatically on the next request.
+  - `getOrSynthesize(messageKey, lang, synthesize)` — the single entry point used everywhere: cache hit returns immediately, cache miss calls the TTS adapter once and caches the result.
+- Wired `KioskRedisService` into `KioskService`'s 6 static-prompt methods (`askForName`, `askForPhone`, `showConfirmationButtons`, `showPhoneKeyboard`, `askForContactMethod`, `showContactMethodButtons`), replacing the direct `ttsAdapter.synthesize(message)` calls with `kioskRedisService.getOrSynthesize(...)`.
+- `greeting()` intentionally left uncached — it embeds `session.customerName` / `session.phone`, so it's different per session and caching it would only fill Redis with one-off entries that are never reused.
+
+**Bugs fixed while wiring this in (found during implementation, not requested but necessary):**
+
+- `this.lang` was compared against `"ar"` in one method and `"Arabic"` in another — only one could ever match, so half the prompts were silently stuck in one language regardless of the env var. Normalized to a single `this.lang: 'ar' | 'en'`, derived once in the constructor.
+- 5 methods (`askForPhone`, `showConfirmationButtons`, `showPhoneKeyboard`, `askForContactMethod`, `showContactMethodButtons`) checked `if (message === "Arabic")` against the just-declared, still-`undefined` `message` variable instead of `this.lang` — always `false`, so these 5 prompts always fell through to English. Fixed to read `this.lang` consistently.
+
+**Notes:**
+
+- Sizing: bounded at 12 keys total (6 messages × 2 languages) — this cache can't grow unbounded the way a per-session or per-user cache would.
+- If prompt wording is edited later without renaming the `KioskMessageKey`, the old cached audio keeps being served until the 7-day TTL expires. Content-hashing the key (so a text change produces a new key automatically) was discussed as a more robust follow-up if that risk matters here.
+- `KioskRedisService` needs `RedisService` available to `KioskModule` (either export it from wherever it's currently provided, or import `RedisModule` into `KioskModule`), and needs to be added to `KioskModule`'s `providers`.
+
+## [2026-09-22] feat(kiosk-i18n): full English/Arabic localization, driven by env language setting
+
+**By:** Sara
+
+**Requested:** Make every piece of kiosk UI text — buttons, keyboard, placeholders, labels — switch between English and Arabic based on a language setting, matching whichever language the backend is now generating spoken/message content in.
+
+**Changes:**
+
+- Added `NEXT_PUBLIC_APP_LANGUAGE` env var (`en` | `ar`, defaults to `ar`) as the single source of truth for kiosk display language.
+- Added a `STRINGS` dictionary covering every frontend-owned string: brand/gate labels, start overlay text, Yes/No confirmation labels, the four contact-method button labels, name/phone placeholders, keyboard control labels (space/clear/backspace) and their aria-labels, and the Send button.
+- Added a parallel English (QWERTY) on-screen keyboard, swapped in for name entry alongside the existing Arabic layout based on the same language setting.
+- Switched the whole page's `dir` attribute (and per-input text alignment) between `rtl` and `ltr` based on the same setting, instead of the previous hardcoded `dir="rtl"` throughout.
+- Refactored the name/phone keyboard handlers (backspace, clear, space) to call dedicated functions instead of comparing the pressed key's display text — so keyboard labels can change per language without touching input logic.
+- Backend (`KioskService`) now generates `message` (and its TTS audio) in the matching language as well, so the spoken/on-screen prompt text and the kiosk's own UI text stay consistent end-to-end.
+
+**Kept language-independent (protocol, not display):**
+
+- The Yes/No confirmation still emits a fixed value to the backend `INPUT` payload, decoupled from the displayed button label.
+- The contact-method buttons still emit the `ContactMethod` enum key (e.g. `'SMS'`), not the localized label.
+
+**Notes:**
+
+- Setting `NEXT_PUBLIC_APP_LANGUAGE` requires a rebuild/restart to take effect, since it's inlined at build time in a Next.js client component.
+- Frontend and backend language settings are two separate env values today — worth confirming both are kept in sync per environment, or consolidating into one shared config, to avoid a kiosk that speaks Arabic but shows English buttons (or vice versa).
+
+## [2026-09-22] feat(kiosk-ui): contact-method buttons + voice-mode guard for CONTACT_METHOD_ASKING
+
+**By:** Sara
+
+**Requested:** Match the existing phone-asking UX pattern (2 voice attempts, then a manual fallback UI) for the `CONTACT_METHOD_ASKING` state, and make sure the kiosk never opens the mic while a button/keyboard UI is showing.
+
+**Changes:**
+
+- Added a `showContactMethodButtons` UI state and a 4-button picker (SMS / WhatsApp / تطبيق الساير / اتصال هاتفي), rendered from the shared `ContactMethod` enum.
+- Added `sendContactMethod(method)`, mirroring `sendConfirmation`, which emits `INPUT` with `state: 'CONTACT_METHOD_ASKING'` and the chosen method as `text`.
+- Updated the OUTPUT listener's UI branch so `inputMode: 'BUTTONS'` renders the contact-method picker only when `state === 'CONTACT_METHOD_ASKING'`, and falls back to the existing Yes/No confirmation buttons for every other `BUTTONS` state (e.g. `CONFIRMING_PHONE`).
+- Added a defensive guard inside `startRecording()` itself: if `inputModeRef.current !== 'VOICE'` (or `textInputStateRef.current` is true), it logs why and returns without touching the microphone — regardless of which call site triggered it.
+- Added `showContactMethodButtons` to `isKeyboardActive`, so the avatar hides consistently with the other manual-input UIs.
+
+**Behavior now matches phone-asking exactly:**
+
+1st & 2nd `CONTACT_METHOD_ASKING` attempt → backend sends `inputMode: VOICE` → mic opens normally.
+3rd attempt → backend sends `inputMode: BUTTONS` → mic never opens, kiosk shows the 4 contact-method buttons instead of voice/Yes-No.
+
+**Notes:**
+
+- No backend changes required — `KioskService.handleContactMethodInput` already implemented the same 2-voice-attempts-then-fallback pattern as `handlePhoneInput`.
+- Bug caught and fixed during implementation: an earlier draft toggled the button UI off `state === 'CONTACT_METHOD_ASKING'` alone, which would have skipped both voice attempts entirely. Fixed to key strictly off `inputMode`, same as every other state.
+
+## [2026-09-22] feat(queue-contact): wire QueueService to ContactService for candidate notification
+
+**By:** Sara
+
+**Requested:** Connect `QueueService`'s candidate selection to `ContactService`, so a customer is actually notified when chosen from the queue, and the slot/ticket/rotation state stays in sync with the contact outcome.
+
+**Changes:**
+
+- Injected `ContactService` into `QueueService`.
+- Updated `callNextCandidate()` to call `ContactService.notify(...)` after marking a ticket `CALLED`, passing `ticketId`, `slotId`, `phone`, `name`, and `preferredContactMethod`.
+- Kept `slotId` as the correlation key passed through to `ContactService`, so outcome events can be routed back to the correct rotation.
+- Confirmed existing `@OnEvent(EVENTS.CONTACT_ACK)` / `@OnEvent(EVENTS.CONTACT_TIMEOUT)` handlers in `QueueService` remain the single source of truth for:
+  - Marking the ticket `ACKNOWLEDGED` and the slot `OCCUPIED` on ack.
+  - Resetting the ticket to `WAITING` and rotating to the next candidate on timeout.
+  - Deleting the rotation once a slot is filled.
+- No direct dependency from `ContactService` back to `QueueService` — communication stays one-directional via events, avoiding circular DI.
+
+**Notification Flow:**
+
+Queue selects candidate → `QueueService.callNextCandidate` → `ContactService.notify(ticketId, slotId, phone, preferredContactMethod)` → Contact Adapter → customer notified
+
+**Outcome Flow:**
+
+`ContactService` emits `CONTACT_ACK` or `CONTACT_TIMEOUT` (with `ticketId` + `slotId`) → `QueueService`'s `@OnEvent` handlers update slot/ticket/rotation state accordingly
+
+**Notes:**
+
+- `QueueService` owns all slot, ticket, and rotation state — `ContactService` has no visibility into queues or slots, only ticket-level contact outcomes.
+- This keeps `ContactService` and `QueueService` decoupled from each other in code, connected only through the event emitter.
+- Still to confirm: error handling if `contactService.notify()` throws (e.g. bad phone number) — currently not caught, so a failed `notify()` call would leave the ticket stuck in `CALLED` rather than rotating to the next candidate.
+
+
+## [2026-09-20] feat(queue-contact): add customer acknowledgment flow
+
+**By:** Sara
+
+**Requested:** Implement the customer acknowledgment flow after contacting a customer, with a 30-second response window.
+
+**Changes:**
+
+- Added pending-contact tracking in `ContactService`.
+- Added a 30-second acknowledgment timeout after a notification is successfully sent.
+- Added `acknowledge(ticketId)` handling for customer approval.
+- Added the `POST /queue/acknowledge` endpoint.
+- Added acknowledgment handling using the ticket ID.
+- If the customer acknowledges within 30 seconds, the result becomes `ACKNOWLEDGED`.
+- If no acknowledgment is received within 30 seconds, the result becomes `NO_RESPONSE`.
+- Kept queue rotation outside `ContactService`; after `NO_RESPONSE`, Queue Core remains responsible for selecting the next customer.
+
+**Acknowledgment Flow:**
+
+Queue selects customer → ContactService → Contact Adapter → `SENT` → Start 30-second timer → Customer acknowledges → `ACKNOWLEDGED`
+
+If there is no response:
+
+Queue selects customer → ContactService → Contact Adapter → `SENT` → 30 seconds → `NO_RESPONSE` → Queue Core handles rotation
+
+**Notes:**
+
+- The 30-second timer is currently implemented using an in-memory timer for MVP simulation.
+- Contact adapters do not wait for the 30-second period; they only simulate sending.
+- Customer acknowledgment is simulated through the `/queue/acknowledge` endpoint.
+- Queue Core remains responsible for rotation after `NO_RESPONSE`.
+
+
+## [2026-09-20] feat(queue-contact): add simulated customer contact adapters
+
+**By:** Sara
+
+**Requested:** Implement the Customer Contact layer for the Queue module using a common adapter abstraction and simulated contact methods.
+
+**Changes:**
+
+- Added the `IContactAdapter` abstraction for customer contact methods.
+- Added simulated contact adapters for SMS, WhatsApp, Elsaayer App, and Calling Agent.
+- Added the `ContactMethod` type with `SMS`, `WHATSAPP`, `ELSAAYER_APP`, and `CALLING_AGENT`.
+- Added the `Notification` structure containing `ticketId`, `phone`, `name`, and `message`.
+- Added the `ContactResult` structure containing `ticketId`, `method`, and contact status.
+- Updated the Calling Agent adapter to return the correct `CALLING_AGENT` method and ticket ID.
+- Added `ContactService` logic to select the appropriate adapter based on the customer's `preferredContactMethod`.
+- Kept all contact providers simulated for the MVP so they can later be replaced with real services.
+
+**Notes:**
+
+- The customer's phone number is taken from the `QueueTicket` and passed to the selected contact adapter.
+- Each adapter simulates sending the notification and returns a `SENT` result.
+- The adapter abstraction keeps the Queue Contact logic independent from the actual contact provider.
+
 ## [2026-09-20 01:27] fix(kiosk): add temporary contact method fallback
 
 **By:** @RahmaMohamedFarouk06

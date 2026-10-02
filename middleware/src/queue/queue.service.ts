@@ -1,8 +1,11 @@
+import { ContactMethod } from '@common/enums/contactMethod.enum';
+//import { ContactMethod } from '../ai';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { ContactMethod } from '../ai';
+
 import { EVENTS } from '../common/events';
 import type { ContactOutcomePayload } from '../common/typed-event-emitter.service';
+import { ContactService } from 'src/contact/contact.service';
 
 export type QueueTicketStatus =
   'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED';
@@ -20,8 +23,7 @@ export interface QueueTicket {
   preferredContactMethod: ContactMethod;
   status: QueueTicketStatus;
   createdAt: Date;
-  isToyotaCustomer: boolean;
-  IsToyotaCustomer: boolean;
+  IsToyotaCustomer?: boolean;
 }
 
 export interface QueueSlot {
@@ -43,6 +45,8 @@ export class QueueService {
 
   private readonly MAX_CONTACT_ATTEMPTS = 3;
 
+  
+
   private tickets: QueueTicket[] = [];
   private slots: QueueSlot[] = [];
   private rotations = new Map<string, SlotRotationState>();
@@ -50,6 +54,7 @@ export class QueueService {
   private queueNumberCounter = 0;
 
   constructor(
+    private readonly contactService: ContactService,
     @Optional()
     private readonly eventEmitter?: EventEmitter2,
   ) {}
@@ -68,8 +73,8 @@ export class QueueService {
     name: string,
     phone: string,
     source: 'QR' | 'VOICE',
-    preferredContactMethod: ContactMethod,
-    isToyotaCustomer: boolean = false,
+    preferredContactMethod:ContactMethod,
+    IsToyotaCustomer:boolean
   ): Promise<QueueTicket> {
     this.logger.log(
       `[Queue] Creating queue ticket for plate: ${plate}, name: ${name}, source: ${source}, gateId: ${gateId}`,
@@ -79,7 +84,7 @@ export class QueueService {
         source,
         gateId,
         preferredContactMethod,
-        isToyotaCustomer,
+        IsToyotaCustomer,
       },
     );
 
@@ -99,8 +104,7 @@ export class QueueService {
       preferredContactMethod,
       status: 'WAITING',
       createdAt: new Date(),
-      isToyotaCustomer,
-      IsToyotaCustomer: isToyotaCustomer,
+      IsToyotaCustomer
     };
 
     this.tickets.push(ticket);
@@ -294,6 +298,17 @@ export class QueueService {
         contactMethod: ticket.preferredContactMethod,
       },
     );
+
+     await this.contactService.notify({
+    ticketId: ticket.ticketId,
+    slotId,
+    phone: ticket.phone,
+    name: ticket.name,
+    preferredContactMethod: ticket.preferredContactMethod,
+  });
+    this.logger.log(`[QueueService] Contact method: ${ticket.preferredContactMethod}`);
+
+
 
     return ticket;
   }
