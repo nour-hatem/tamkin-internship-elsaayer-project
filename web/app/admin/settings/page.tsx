@@ -20,14 +20,13 @@ interface SlotStatusUpdatedPayload {
   status: QueueSlotStatus;
 }
 
-// Mock queue rotation configuration
-const mockRotationConfig = {
-  strategy: "FIFO",
-  maxCandidates: 3,
-  contactTimeout: 30,
-  retryAttempts: 3,
-  contactMethod: "Customer Preference",
-};
+interface QueueRotationConfig {
+  strategy: string;
+  maxCandidates: number;
+  contactTimeout: number;
+  retryAttempts: number;
+  contactMethod: string;
+}
 
 export default function GateSettingsPage() {
   const params = useParams();
@@ -38,6 +37,12 @@ export default function GateSettingsPage() {
 
   const [loadingSlots, setLoadingSlots] = useState(true);
   const [slotsError, setSlotsError] = useState<string | null>(null);
+
+  const [rotationConfig, setRotationConfig] =
+    useState<QueueRotationConfig | null>(null);
+
+  const [loadingConfig, setLoadingConfig] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchSlots() {
@@ -75,14 +80,44 @@ export default function GateSettingsPage() {
   }, []);
 
   useEffect(() => {
-      const handleConnect = () => {
-    console.log("Settings socket connected:", gateSocket.id);
-  };
+    async function fetchRotationConfig() {
+      try {
+        setLoadingConfig(true);
+        setConfigError(null);
 
-  const handleConnectError = (error: Error) => {
-    console.error("Settings socket connection error:", error);
-  };
+        const response = await fetch(`${API_URL}/queue/config`);
 
+        if (!response.ok) {
+          throw new Error("Failed to fetch queue rotation configuration");
+        }
+
+        const config: QueueRotationConfig = await response.json();
+
+        setRotationConfig(config);
+      } catch (error) {
+        console.error(error);
+        setConfigError(
+          "Unable to load queue rotation configuration."
+        );
+      } finally {
+        setLoadingConfig(false);
+      }
+    }
+
+    fetchRotationConfig();
+  }, []);
+
+  useEffect(() => {
+    const handleConnect = () => {
+      console.log("Settings socket connected:", gateSocket.id);
+    };
+
+    const handleConnectError = (error: Error) => {
+      console.error(
+        "Settings socket connection error:",
+        error
+      );
+    };
 
     const handleSlotStatusUpdated = (
       payload: SlotStatusUpdatedPayload
@@ -119,10 +154,9 @@ export default function GateSettingsPage() {
         handleSlotStatusUpdated
       );
 
-      gateSocket.emit("leaveGate", { gateId });
       gateSocket.disconnect();
     };
-  }, [gateId]);
+  }, []);
 
   const totalSlots = freeSlots + occupiedSlots;
 
@@ -259,41 +293,58 @@ export default function GateSettingsPage() {
           </p>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="divide-y divide-gray-100">
-            <SettingRow
-              label="Rotation Strategy"
-              description="The order in which waiting customers are processed."
-              value={mockRotationConfig.strategy}
-            />
-
-            <SettingRow
-              label="Maximum Candidates"
-              description="Maximum number of candidates in a rotation cycle."
-              value={mockRotationConfig.maxCandidates.toString()}
-            />
-
-            <SettingRow
-              label="Contact Timeout"
-              description="Time allowed for a customer to respond."
-              value={`${mockRotationConfig.contactTimeout} seconds`}
-            />
-
-            <SettingRow
-              label="Retry Attempts"
-              description="Maximum number of contact attempts."
-              value={mockRotationConfig.retryAttempts.toString()}
-            />
-
-            <SettingRow
-              label="Contact Method"
-              description="How customers are contacted during queue processing."
-              value={mockRotationConfig.contactMethod}
-            />
+        {loadingConfig && (
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <p className="text-sm text-gray-500">
+              Loading queue rotation configuration...
+            </p>
           </div>
-        </div>
-      </section>
+        )}
 
+        {!loadingConfig && configError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+            <p className="text-sm text-red-700">
+              {configError}
+            </p>
+          </div>
+        )}
+
+        {!loadingConfig && !configError && rotationConfig && (
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="divide-y divide-gray-100">
+              <SettingRow
+                label="Rotation Strategy"
+                description="The order in which waiting customers are processed."
+                value={rotationConfig.strategy}
+              />
+
+              <SettingRow
+                label="Maximum Candidates"
+                description="Maximum number of candidates in a rotation cycle."
+                value={rotationConfig.maxCandidates.toString()}
+              />
+
+              <SettingRow
+                label="Contact Timeout"
+                description="Time allowed for a customer to respond."
+                value={`${rotationConfig.contactTimeout} seconds`}
+              />
+
+              <SettingRow
+                label="Retry Attempts"
+                description="Maximum number of contact attempts."
+                value={rotationConfig.retryAttempts.toString()}
+              />
+
+              <SettingRow
+                label="Contact Method"
+                description="How customers are contacted during queue processing."
+                value={rotationConfig.contactMethod}
+              />
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
