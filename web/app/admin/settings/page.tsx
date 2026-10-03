@@ -75,19 +75,14 @@ export default function GateSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (!gateId) return;
+      const handleConnect = () => {
+    console.log("Settings socket connected:", gateSocket.id);
+  };
 
-    const handleConnect = () => {
-      console.log("Settings socket connected:", gateSocket.id);
+  const handleConnectError = (error: Error) => {
+    console.error("Settings socket connection error:", error);
+  };
 
-      gateSocket.emit("joinGate", { gateId });
-
-      console.log("Joined gate room:", gateId);
-    };
-
-    const handleConnectError = (error: Error) => {
-      console.error("Settings socket connection error:", error);
-    };
 
     const handleSlotStatusUpdated = (
       payload: SlotStatusUpdatedPayload
@@ -299,10 +294,6 @@ export default function GateSettingsPage() {
         </div>
       </section>
 
-      <p className="text-xs text-gray-400">
-        Queue rotation configuration is currently using demo
-        values and will be connected to the backend later.
-      </p>
     </div>
   );
 }
