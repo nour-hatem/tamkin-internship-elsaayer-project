@@ -44,7 +44,7 @@ describe('AdminGateway', () => {
     expect(result).toEqual({ event: 'left', gateId: 'gate-1' });
   });
 
-  it('handleQueueTicketAdded broadcasts to room gate:{gateId}', () => {
+  it('handleQueueTicketAdded broadcasts globally to all admin dashboards', () => {
     const mockTicket = {
       ticketId: 'TICK-1001',
       gateId: 'gate-1',
@@ -53,10 +53,11 @@ describe('AdminGateway', () => {
 
     gateway.handleQueueTicketAdded({ ticket: mockTicket });
 
-    expect(mockServer.to).toHaveBeenCalledWith('gate:gate-1');
     expect(mockServer.emit).toHaveBeenCalledWith('QUEUE_TICKET_ADDED', {
       ticket: mockTicket,
     });
+
+    expect(mockServer.to).not.toHaveBeenCalled();
   });
 
   it('handleQueueTicketStatusUpdated broadcasts to room gate:{gateId}', () => {
