@@ -105,4 +105,13 @@ export class AdminGateway
       status:payload.status
     })
   }
+
+  @OnEvent(EVENTS.QUEUE_STATS_UPDATED)
+handleQueueStatsUpdated(payload: {
+  waiting: number;
+  called: number;
+  inService: number;
+}) {
+  this.server.emit("QUEUE_STATS_UPDATED", payload);
+}
 }

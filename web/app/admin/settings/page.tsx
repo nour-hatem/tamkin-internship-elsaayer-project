@@ -85,7 +85,7 @@ export default function GateSettingsPage() {
         setLoadingConfig(true);
         setConfigError(null);
 
-        const response = await fetch(`${API_URL}/queue/config`);
+        const response = await fetch(`${API_URL}/admin/config`);
 
         if (!response.ok) {
           throw new Error("Failed to fetch queue rotation configuration");

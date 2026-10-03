@@ -59,13 +59,34 @@ export class QueueService {
     private readonly eventEmitter?: EventEmitter2,
   ) {}
 
-  private emitStatusUpdated(ticket: QueueTicket): void {
-    this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_STATUS_UPDATED, {
-      ticketId: ticket.ticketId,
-      gateId: ticket.gateId,
-      status: ticket.status,
-    });
-  }
+private async emitStatusUpdated(ticket: QueueTicket) {
+  this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_STATUS_UPDATED, {
+    ticketId: ticket.ticketId,
+    gateId: ticket.gateId,
+    status: ticket.status,
+  });
+
+  const tickets = await this.getAllTickets();
+
+  const waiting = tickets.filter(
+    (ticket) => ticket.status === 'WAITING',
+  ).length;
+
+  const called = tickets.filter(
+    (ticket) => ticket.status === 'CALLED',
+  ).length;
+
+  const inService = tickets.filter(
+    (ticket) =>
+      ticket.status === 'IN_SERVICE',
+  ).length;
+
+  this.eventEmitter?.emit(EVENTS.QUEUE_STATS_UPDATED, {
+    waiting,
+    called,
+    inService,
+  });
+}
 
   async enqueue(
     gateId: string,
@@ -171,6 +192,7 @@ export class QueueService {
     return this.tickets;
   }
 
+  
   async createSlot(slotId: string, gateId: string): Promise<QueueSlot> {
     const existingSlot = this.slots.find((slot) => slot.slotId === slotId);
 
