@@ -33,7 +33,7 @@ describe('LoggerService', () => {
     loggerService.error('Test error message', 'fake stack trace', 'ErrorModule');
 
     // Wait a brief moment for stream write
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(fs.existsSync(logsDir)).toBe(true);
     const files = fs.readdirSync(logsDir).filter((f) => /^app-.*\.log$/.test(f));

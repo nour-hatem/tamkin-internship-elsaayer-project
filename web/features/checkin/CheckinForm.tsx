@@ -2,11 +2,9 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 
-type ContactMethod =
-  | 'SMS'
-  | 'WHATSAPP'
-  | 'ELSAAYER_APP'
-  | 'CALLING_AGENT';
+import { submitCheckIn } from '../../lib/api';
+
+type ContactMethod = 'SMS' | 'WHATSAPP' | 'ELSAAYER_APP' | 'CALLING_AGENT';
 
 type TicketData = {
   gateId: string;
@@ -23,20 +21,15 @@ type CheckinFormProps = {
   gateId: string;
 };
 
-export default function CheckinForm({
-  token,
-  gateId,
-}: CheckinFormProps) {
+export default function CheckinForm({ token, gateId }: CheckinFormProps) {
   const [plate, setPlate] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
 
-  const [preferredContactMethod, setPreferredContactMethod] =
-    useState<ContactMethod | ''>('');
+  const [preferredContactMethod, setPreferredContactMethod] = useState<ContactMethod | ''>('');
 
   const [plateLocked, setPlateLocked] = useState(false);
-  const [source, setSource] =
-    useState<TicketData['source']>('GENERIC');
+  const [source, setSource] = useState<TicketData['source']>('GENERIC');
   const [fallbackMode, setFallbackMode] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
@@ -53,24 +46,17 @@ export default function CheckinForm({
       try {
         const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-        const response = await fetch(
-          `${apiUrl}/qr/ticket/${token}`,
-        );
+        const response = await fetch(`${apiUrl}/qr/ticket/${token}`);
 
         if (response.status === 410) {
           try {
-            const displayResponse = await fetch(
-              `${apiUrl}/qr/display/${gateId}`,
-            );
+            const displayResponse = await fetch(`${apiUrl}/qr/display/${gateId}`);
 
             if (!displayResponse.ok) {
-              throw new Error(
-                'Unable to load check-in information.',
-              );
+              throw new Error('Unable to load check-in information.');
             }
 
-            const display =
-              await displayResponse.json();
+            const display = await displayResponse.json();
 
             setPlate(display.plate ?? '');
             setName('');
@@ -80,9 +66,7 @@ export default function CheckinForm({
             setSource('GENERIC');
             setEditMode(false);
             setFallbackMode(true);
-            setMessage(
-              'Your QR ticket has expired. Please complete the check-in manually.',
-            );
+            setMessage('Your QR ticket has expired. Please complete the check-in manually.');
           } catch {
             setFallbackMode(false);
             setMessage(
@@ -94,8 +78,7 @@ export default function CheckinForm({
         }
 
         if (!response.ok) {
-          let errorMessage =
-            'Unable to load check-in information.';
+          let errorMessage = 'Unable to load check-in information.';
 
           try {
             const data = await response.json();
@@ -110,8 +93,7 @@ export default function CheckinForm({
           throw new Error(errorMessage);
         }
 
-        const ticket: TicketData =
-          await response.json();
+        const ticket: TicketData = await response.json();
 
         setPlate(ticket.plate ?? '');
         setName(ticket.name ?? '');
@@ -124,11 +106,7 @@ export default function CheckinForm({
         setMessage('');
       } catch (error) {
         setFallbackMode(false);
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : 'Unable to load check-in information.',
-        );
+        setMessage(error instanceof Error ? error.message : 'Unable to load check-in information.');
       } finally {
         setLoadingTicket(false);
       }
@@ -137,15 +115,11 @@ export default function CheckinForm({
     loadTicket();
   }, [token, gateId]);
 
-  async function handleSubmit(
-    event: FormEvent<HTMLFormElement>,
-  ) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!preferredContactMethod) {
-      setMessage(
-        'Please select how you would like to be contacted when your slot is available.',
-      );
+      setMessage('Please select how you would like to be contacted when your slot is available.');
       return;
     }
 
@@ -153,65 +127,53 @@ export default function CheckinForm({
     setMessage('');
 
     try {
-      const apiUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL;
+      if (fallbackMode) {
+        const data = await submitCheckIn({
+          gateId,
+          plate,
+          name,
+          phone,
+          source: 'QR',
+          preferredContactMethod,
+        });
 
-      const endpoint = fallbackMode
-        ? `${apiUrl}/checkin/submit`
-        : `${apiUrl}/qr/checkin`;
+        setTicketId(data.queueEntryId ?? '');
+        return;
+      }
 
-      const body = fallbackMode
-        ? {
-            gateId,
-            plate,
-            name,
-            phone,
-            source: 'QR',
-            preferredContactMethod,
-          }
-        : {
-            token,
-            plate,
-            name,
-            phone,
-            preferredContactMethod,
-          };
+      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-      const response = await fetch(endpoint, {
+      const response = await fetch(`${apiUrl}/qr/checkin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          token,
+          plate,
+          name,
+          phone,
+          preferredContactMethod,
+        }),
       });
 
       const data = await response.json();
 
       if (response.status === 409) {
-        throw new Error(
-          'This vehicle is already waiting in the queue.',
-        );
+        throw new Error('This vehicle is already waiting in the queue.');
       }
 
       if (response.status === 410) {
-        throw new Error(
-          'This QR code has expired or has already been used.',
-        );
+        throw new Error('This QR code has expired or has already been used.');
       }
 
       if (!response.ok) {
-        throw new Error(
-          data.message || 'Check-in failed.',
-        );
+        throw new Error(data.message || 'Check-in failed.');
       }
 
       setTicketId(data.queueEntryId);
     } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : 'Something went wrong.',
-      );
+      setMessage(error instanceof Error ? error.message : 'Something went wrong.');
     } finally {
       setLoading(false);
     }
@@ -244,7 +206,7 @@ export default function CheckinForm({
             marginBottom: '20px',
           }}
         >
-          âœ“
+          ✓
         </div>
 
         <h2
@@ -311,8 +273,7 @@ export default function CheckinForm({
             textAlign: 'center',
           }}
         >
-          Your QR ticket has expired. You can still
-          complete your check-in below.
+          Your QR ticket has expired. You can still complete your check-in below.
         </div>
       )}
 
@@ -329,8 +290,8 @@ export default function CheckinForm({
           }}
         >
           {source === 'SAP'
-            ? 'Vehicle recognized â€” information loaded from SAP.'
-            : 'Vehicle detected â€” please complete your information.'}
+            ? 'Vehicle recognized — information loaded from SAP.'
+            : 'Vehicle detected — please complete your information.'}
         </div>
       )}
 
@@ -352,9 +313,7 @@ export default function CheckinForm({
           id="plate"
           type="text"
           value={plate}
-          onChange={(event) =>
-            setPlate(event.target.value)
-          }
+          onChange={(event) => setPlate(event.target.value)}
           placeholder="Enter plate number"
           required
           readOnly={plateLocked}
@@ -365,9 +324,7 @@ export default function CheckinForm({
             border: '1px solid #ddd',
             borderRadius: '10px',
             fontSize: '15px',
-            backgroundColor: plateLocked
-              ? '#f3f3f3'
-              : '#fff',
+            backgroundColor: plateLocked ? '#f3f3f3' : '#fff',
           }}
         />
 
@@ -402,9 +359,7 @@ export default function CheckinForm({
           id="name"
           type="text"
           value={name}
-          onChange={(event) =>
-            setName(event.target.value)
-          }
+          onChange={(event) => setName(event.target.value)}
           placeholder="Enter your name"
           required
           readOnly={isSapHit && !editMode}
@@ -415,10 +370,7 @@ export default function CheckinForm({
             border: '1px solid #ddd',
             borderRadius: '10px',
             fontSize: '15px',
-            backgroundColor:
-              isSapHit && !editMode
-                ? '#f3f3f3'
-                : '#fff',
+            backgroundColor: isSapHit && !editMode ? '#f3f3f3' : '#fff',
           }}
         />
       </div>
@@ -441,9 +393,7 @@ export default function CheckinForm({
           id="phone"
           type="tel"
           value={phone}
-          onChange={(event) =>
-            setPhone(event.target.value)
-          }
+          onChange={(event) => setPhone(event.target.value)}
           placeholder="Enter phone number"
           required
           readOnly={isSapHit && !editMode}
@@ -454,10 +404,7 @@ export default function CheckinForm({
             border: '1px solid #ddd',
             borderRadius: '10px',
             fontSize: '15px',
-            backgroundColor:
-              isSapHit && !editMode
-                ? '#f3f3f3'
-                : '#fff',
+            backgroundColor: isSapHit && !editMode ? '#f3f3f3' : '#fff',
           }}
         />
       </div>
@@ -479,11 +426,7 @@ export default function CheckinForm({
         <select
           id="preferredContactMethod"
           value={preferredContactMethod}
-          onChange={(event) =>
-            setPreferredContactMethod(
-              event.target.value as ContactMethod,
-            )
-          }
+          onChange={(event) => setPreferredContactMethod(event.target.value as ContactMethod)}
           required
           style={{
             width: '100%',
@@ -499,21 +442,13 @@ export default function CheckinForm({
             Select how you want to be contacted
           </option>
 
-          <option value="SMS">
-            SMS
-          </option>
+          <option value="SMS">SMS</option>
 
-          <option value="WHATSAPP">
-            WhatsApp
-          </option>
+          <option value="WHATSAPP">WhatsApp</option>
 
-          <option value="ELSAAYER_APP">
-            ElSaayer App
-          </option>
+          <option value="ELSAAYER_APP">ElSaayer App</option>
 
-          <option value="CALLING_AGENT">
-            Calling Agent
-          </option>
+          <option value="CALLING_AGENT">Calling Agent</option>
         </select>
       </div>
 
@@ -535,15 +470,11 @@ export default function CheckinForm({
             color: '#fff',
             fontSize: '16px',
             fontWeight: '600',
-            cursor: loading
-              ? 'not-allowed'
-              : 'pointer',
+            cursor: loading ? 'not-allowed' : 'pointer',
             opacity: loading ? 0.7 : 1,
           }}
         >
-          {loading
-            ? 'Checking in...'
-            : 'Check In'}
+          {loading ? 'Checking in...' : 'Check In'}
         </button>
 
         {isSapHit && !editMode && (
@@ -560,9 +491,7 @@ export default function CheckinForm({
               color: '#111',
               fontSize: '16px',
               fontWeight: '600',
-              cursor: loading
-                ? 'not-allowed'
-                : 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
               opacity: loading ? 0.7 : 1,
             }}
           >

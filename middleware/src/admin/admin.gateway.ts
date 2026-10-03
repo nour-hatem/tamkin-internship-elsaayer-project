@@ -19,9 +19,7 @@ import { EVENTS } from '../common/events';
     origin: '*',
   },
 })
-export class AdminGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+export class AdminGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -36,31 +34,21 @@ export class AdminGateway
   }
 
   @SubscribeMessage('joinGate')
-  handleJoinGate(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gateId: string },
-  ) {
+  handleJoinGate(@ConnectedSocket() client: Socket, @MessageBody() data: { gateId: string }) {
     const gateId = data?.gateId || 'gate-1';
     const roomName = `gate:${gateId}`;
     client.join(roomName);
-    this.logger.log(
-      `[AdminGateway] Client ${client.id} joined room ${roomName}`,
-    );
+    this.logger.log(`[AdminGateway] Client ${client.id} joined room ${roomName}`);
     return { event: 'joined', gateId };
   }
 
   @SubscribeMessage('leaveGate')
-  handleLeaveGate(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gateId: string },
-  ) {
+  handleLeaveGate(@ConnectedSocket() client: Socket, @MessageBody() data: { gateId: string }) {
     const gateId = data?.gateId;
     if (gateId) {
       const roomName = `gate:${gateId}`;
       client.leave(roomName);
-      this.logger.log(
-        `[AdminGateway] Client ${client.id} left room ${roomName}`,
-      );
+      this.logger.log(`[AdminGateway] Client ${client.id} left room ${roomName}`);
     }
     return { event: 'left', gateId };
   }
@@ -72,7 +60,7 @@ export class AdminGateway
     this.logger.log(
       `[AdminGateway] Broadcasting QUEUE_TICKET_ADDED to ${roomName} for ticket ${payload.ticket.ticketId}`,
     );
-    this.server.to(roomName).emit('QUEUE_TICKET_ADDED', {
+    this.server.emit('QUEUE_TICKET_ADDED', {
       ticket: payload.ticket,
     });
   }
