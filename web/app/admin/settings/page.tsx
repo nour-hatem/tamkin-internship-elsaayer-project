@@ -1,15 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-const mockSettings = {
-  totalSlots: 5,
-  occupiedSlots: 2,
-  rotationStrategy: "FIFO",
+import { gateSocket } from "@/lib/gateSocket";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3000";
+
+type QueueSlotStatus = "AVAILABLE" | "OCCUPIED";
+
+interface QueueSlot {
+  slotId: string;
+  gateId: string;
+  status: QueueSlotStatus;
+}
+
+interface SlotStatusUpdatedPayload {
+  status: QueueSlotStatus;
+}
+
+// Mock queue rotation configuration
+const mockRotationConfig = {
+  strategy: "FIFO",
   maxCandidates: 3,
   contactTimeout: 30,
-  maxRetries: 3,
+  retryAttempts: 3,
   contactMethod: "Customer Preference",
 };
 
@@ -17,22 +33,115 @@ export default function GateSettingsPage() {
   const params = useParams();
   const gateId = params.gateId as string;
 
-  // Temporary mock values for UI development.
-  const [settings] = useState(mockSettings);
+  const [freeSlots, setFreeSlots] = useState(0);
+  const [occupiedSlots, setOccupiedSlots] = useState(0);
 
-  const freeSlots = settings.totalSlots - settings.occupiedSlots;
+  const [loadingSlots, setLoadingSlots] = useState(true);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchSlots() {
+      try {
+        setLoadingSlots(true);
+        setSlotsError(null);
+
+        const response = await fetch(`${API_URL}/queue/slots`);
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch slots");
+        }
+
+        const slots: QueueSlot[] = await response.json();
+
+        const free = slots.filter(
+          (slot) => slot.status === "AVAILABLE"
+        ).length;
+
+        const occupied = slots.filter(
+          (slot) => slot.status === "OCCUPIED"
+        ).length;
+
+        setFreeSlots(free);
+        setOccupiedSlots(occupied);
+      } catch (error) {
+        console.error(error);
+        setSlotsError("Unable to load slot information.");
+      } finally {
+        setLoadingSlots(false);
+      }
+    }
+
+    fetchSlots();
+  }, []);
+
+  useEffect(() => {
+    if (!gateId) return;
+
+    const handleConnect = () => {
+      console.log("Settings socket connected:", gateSocket.id);
+
+      gateSocket.emit("joinGate", { gateId });
+
+      console.log("Joined gate room:", gateId);
+    };
+
+    const handleConnectError = (error: Error) => {
+      console.error("Settings socket connection error:", error);
+    };
+
+    const handleSlotStatusUpdated = (
+      payload: SlotStatusUpdatedPayload
+    ) => {
+      console.log("Slot status updated:", payload.status);
+
+      if (payload.status === "OCCUPIED") {
+        setFreeSlots((current) => Math.max(0, current - 1));
+        setOccupiedSlots((current) => current + 1);
+      }
+
+      if (payload.status === "AVAILABLE") {
+        setFreeSlots((current) => current + 1);
+        setOccupiedSlots((current) =>
+          Math.max(0, current - 1)
+        );
+      }
+    };
+
+    gateSocket.on("connect", handleConnect);
+    gateSocket.on("connect_error", handleConnectError);
+    gateSocket.on(
+      "SLOT_STATUS_UPDATED",
+      handleSlotStatusUpdated
+    );
+
+    gateSocket.connect();
+
+    return () => {
+      gateSocket.off("connect", handleConnect);
+      gateSocket.off("connect_error", handleConnectError);
+      gateSocket.off(
+        "SLOT_STATUS_UPDATED",
+        handleSlotStatusUpdated
+      );
+
+      gateSocket.emit("leaveGate", { gateId });
+      gateSocket.disconnect();
+    };
+  }, [gateId]);
+
+  const totalSlots = freeSlots + occupiedSlots;
 
   return (
     <div className="space-y-8">
-      {/* Page Header */}
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">
           Gate Settings
         </h1>
 
         <p className="mt-1 text-sm text-gray-500">
-          View slot availability and queue rotation configuration for Gate{" "}
-          {gateId}.
+          View slot availability and queue rotation configuration
+          for Gate {gateId}.
         </p>
       </div>
 
@@ -44,56 +153,102 @@ export default function GateSettingsPage() {
           </h2>
 
           <p className="mt-1 text-sm text-gray-500">
-            Overview of the current service slot capacity.
+            Current availability of the shared service slots.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Total Slots</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {settings.totalSlots}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Occupied Slots</p>
-            <p className="mt-2 text-3xl font-semibold text-gray-900">
-              {settings.occupiedSlots}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-green-200 bg-green-50 p-5 shadow-sm">
-            <p className="text-sm text-green-700">Free Slots</p>
-            <p className="mt-2 text-3xl font-semibold text-green-800">
-              {freeSlots}
-            </p>
-          </div>
-        </div>
-
-        {/* Slot Occupancy */}
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-gray-700">
-              Slot Occupancy
-            </p>
-
+        {loadingSlots && (
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
             <p className="text-sm text-gray-500">
-              {settings.occupiedSlots} of {settings.totalSlots} occupied
+              Loading slot information...
             </p>
           </div>
+        )}
 
-          <div className="h-3 overflow-hidden rounded-full bg-gray-100">
-            <div
-              className="h-full rounded-full bg-red-600 transition-all"
-              style={{
-                width: `${
-                  (settings.occupiedSlots / settings.totalSlots) * 100
-                }%`,
-              }}
-            />
+        {!loadingSlots && slotsError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+            <p className="text-sm text-red-700">
+              {slotsError}
+            </p>
           </div>
-        </div>
+        )}
+
+        {!loadingSlots && !slotsError && (
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {/* Total Slots */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-sm text-gray-500">
+                  Total Slots
+                </p>
+
+                <p className="mt-2 text-3xl font-semibold text-gray-900">
+                  {totalSlots}
+                </p>
+              </div>
+
+              {/* Free Slots */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-sm text-gray-500">
+                  Free Slots
+                </p>
+
+                <p className="mt-2 text-3xl font-semibold text-green-600">
+                  {freeSlots}
+                </p>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Available for customers
+                </p>
+              </div>
+
+              {/* Occupied Slots */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-sm text-gray-500">
+                  Occupied Slots
+                </p>
+
+                <p className="mt-2 text-3xl font-semibold text-orange-600">
+                  {occupiedSlots}
+                </p>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Currently in use
+                </p>
+              </div>
+            </div>
+
+            {/* Slot Utilization */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-700">
+                  Slot Utilization
+                </h3>
+
+                <span className="text-sm text-gray-500">
+                  {totalSlots > 0
+                    ? Math.round(
+                        (occupiedSlots / totalSlots) * 100
+                      )
+                    : 0}
+                  %
+                </span>
+              </div>
+
+              <div className="h-3 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-orange-500 transition-all"
+                  style={{
+                    width:
+                      totalSlots > 0
+                        ? `${(occupiedSlots / totalSlots) * 100}%`
+                        : "0%",
+                  }}
+                />
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       {/* Queue Rotation Configuration */}
@@ -104,7 +259,8 @@ export default function GateSettingsPage() {
           </h2>
 
           <p className="mt-1 text-sm text-gray-500">
-            Current mock configuration for customer calling and queue rotation.
+            Rules used to manage customer selection and contact
+            attempts.
           </p>
         </div>
 
@@ -112,40 +268,40 @@ export default function GateSettingsPage() {
           <div className="divide-y divide-gray-100">
             <SettingRow
               label="Rotation Strategy"
-              value={settings.rotationStrategy}
-              description="Customers are handled in first-in, first-out order."
+              description="The order in which waiting customers are processed."
+              value={mockRotationConfig.strategy}
             />
 
             <SettingRow
               label="Maximum Candidates"
-              value={String(settings.maxCandidates)}
-              description="Maximum candidates considered in one rotation."
+              description="Maximum number of candidates in a rotation cycle."
+              value={mockRotationConfig.maxCandidates.toString()}
             />
 
             <SettingRow
               label="Contact Timeout"
-              value={`${settings.contactTimeout} seconds`}
               description="Time allowed for a customer to respond."
+              value={`${mockRotationConfig.contactTimeout} seconds`}
             />
 
             <SettingRow
-              label="Maximum Retries"
-              value={String(settings.maxRetries)}
-              description="Maximum retry attempts during contact handling."
+              label="Retry Attempts"
+              description="Maximum number of contact attempts."
+              value={mockRotationConfig.retryAttempts.toString()}
             />
 
             <SettingRow
               label="Contact Method"
-              value={settings.contactMethod}
-              description="Uses the customer's preferred contact method."
+              description="How customers are contacted during queue processing."
+              value={mockRotationConfig.contactMethod}
             />
           </div>
         </div>
       </section>
 
       <p className="text-xs text-gray-400">
-        These are demonstration values only. Actual slot availability and queue
-        configuration should come from the backend.
+        Queue rotation configuration is currently using demo
+        values and will be connected to the backend later.
       </p>
     </div>
   );
@@ -153,19 +309,28 @@ export default function GateSettingsPage() {
 
 interface SettingRowProps {
   label: string;
-  value: string;
   description: string;
+  value: string;
 }
 
-function SettingRow({ label, value, description }: SettingRowProps) {
+function SettingRow({
+  label,
+  description,
+  value,
+}: SettingRowProps) {
   return (
     <div className="flex flex-col gap-2 p-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="font-medium text-gray-900">{label}</p>
-        <p className="mt-1 text-sm text-gray-500">{description}</p>
+        <h3 className="text-sm font-medium text-gray-900">
+          {label}
+        </h3>
+
+        <p className="mt-1 text-sm text-gray-500">
+          {description}
+        </p>
       </div>
 
-      <span className="w-fit shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-800">
+      <span className="w-fit rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700">
         {value}
       </span>
     </div>
