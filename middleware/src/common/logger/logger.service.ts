@@ -1,5 +1,5 @@
 import { Injectable, LoggerService as NestLoggerService, Optional } from '@nestjs/common';
-import pino, { Logger as PinoLogger } from 'pino';
+import pino, { Logger as PinoLogger, multistream } from 'pino';
 import pinoPretty from 'pino-pretty';
 import * as path from 'path';
 import { DailyRotateFileStream } from './daily-rotate-file.stream';
@@ -17,9 +17,7 @@ export class LoggerService implements NestLoggerService {
     const logsDir = path.resolve(process.cwd(), 'logs');
     const rotateStream = new DailyRotateFileStream(logsDir, 7);
 
-    const streams: Array<{ stream: any; level?: string }> = [
-      { stream: rotateStream },
-    ];
+    const streams: Array<{ stream: any; level?: string }> = [{ stream: rotateStream }];
 
     if (isProd) {
       streams.push({ stream: process.stdout });
@@ -29,6 +27,7 @@ export class LoggerService implements NestLoggerService {
         translateTime: 'SYS:standard',
         ignore: 'pid,hostname',
       });
+
       streams.push({ stream: prettyStream });
     }
 
@@ -40,7 +39,7 @@ export class LoggerService implements NestLoggerService {
           level: (label: string) => ({ level: label }),
         },
       },
-      pino.multistream(streams),
+      multistream(streams),
     );
   }
 
@@ -78,12 +77,18 @@ export class LoggerService implements NestLoggerService {
           if (item.correlationId) {
             correlationId = item.correlationId;
           }
+
           Object.assign(extra, item);
         }
       }
     }
 
-    return { moduleName, correlationId, extra, stack };
+    return {
+      moduleName,
+      correlationId,
+      extra,
+      stack,
+    };
   }
 
   log(message: any, ...optionalParams: any[]): void {
