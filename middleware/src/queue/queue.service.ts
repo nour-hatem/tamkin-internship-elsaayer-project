@@ -216,8 +216,12 @@ export class QueueService {
     if (slot.status === 'OCCUPIED') {
       throw new Error(`Slot ${slotId} is currently occupied`);
     }
-
+    
+     
     slot.status = 'AVAILABLE';
+    this.eventEmitter?.emit(EVENTS.SLOT_STATUS_UPDATED, {
+      status: slot.status,
+    });
 
     const waitingTickets = await this.getWaitingTickets();
 
@@ -358,6 +362,10 @@ export class QueueService {
     ticket.status = 'ACKNOWLEDGED';
     this.emitStatusUpdated(ticket);
     slot.status = 'OCCUPIED';
+    
+    this.eventEmitter?.emit(EVENTS.SLOT_STATUS_UPDATED, {
+      status: slot.status,
+    });
 
     this.rotations.delete(slotId);
 

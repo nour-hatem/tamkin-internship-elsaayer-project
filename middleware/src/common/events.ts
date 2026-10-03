@@ -19,6 +19,8 @@ export const EVENTS = {
 
   QUEUE_TICKET_ADDED: 'queue.ticket.added',
   QUEUE_TICKET_STATUS_UPDATED: 'queue.ticket.status.updated',
+
+  SLOT_STATUS_UPDATED:'slot.status.updated'
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];
