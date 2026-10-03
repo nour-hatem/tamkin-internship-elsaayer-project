@@ -67,6 +67,7 @@ describe('KioskService (Voice Contact Method Integration)', () => {
           contactMethodRetries: dto.contactMethodRetries ?? 0,
           contactMethod: dto.contactMethod ?? null,
           socketId: dto.socketId ?? null,
+          IsToyotaCustomer:dto.IsToyotaCustomer??null
         };
 
         sessions.set(session.sessionId, session);
@@ -271,6 +272,7 @@ describe('KioskService (Voice Contact Method Integration)', () => {
       phoneRetries: 0,
       contactMethodRetries: 0,
       contactMethod: null,
+      IsToyotaCustomer:true
     };
 
     sessions.set(session.sessionId, session);
@@ -340,6 +342,7 @@ describe('KioskService (Voice Contact Method Integration)', () => {
       phoneRetries: 0,
       contactMethodRetries: 1,
       contactMethod: null,
+      IsToyotaCustomer:false
     };
 
     sessions.set(session.sessionId, session);

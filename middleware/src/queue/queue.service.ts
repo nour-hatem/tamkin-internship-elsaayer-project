@@ -1,11 +1,20 @@
+import { ContactMethod } from '@common/enums/contactMethod.enum';
+//import { ContactMethod } from '../ai';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { ContactMethod } from '../ai';
+
 import { EVENTS } from '../common/events';
 import type { ContactOutcomePayload } from '../common/typed-event-emitter.service';
+import { ContactService } from 'src/contact/contact.service';
 
 export type QueueTicketStatus =
-  'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED' | 'NO_SHOW';
+  | 'WAITING'
+  | 'CALLED'
+  | 'ACKNOWLEDGED'
+  | 'IN_SERVICE'
+  | 'COMPLETED'
+  | 'SKIPPED'
+  | 'NO_SHOW';
 
 export type QueueSlotStatus = 'AVAILABLE' | 'OCCUPIED';
 
@@ -47,58 +56,10 @@ export interface SlotRotationState {
 export class QueueService {
   private readonly logger = new Logger(QueueService.name);
 
-  /**
-   * Maximum number of customers inside one rotation window.
-   *
-   * IMPORTANT:
-   * This is NOT the total number of customers in the queue.
-   *
-   * Example:
-   *
-   * A B C D E
-   *
-   * First rotation:
-   * A B C
-   *
-   * If nobody leaves:
-   * A -> B -> C -> A -> B -> C
-   *
-   * If A becomes NO_SHOW:
-   * Active queue:
-   * B C D E
-   *
-   * New rotation:
-   * B C D
-   */
   private readonly MAX_CONTACT_ATTEMPTS = 3;
 
-  /**
-   * Maximum number of total NO-ACK contacts allowed
-   * for ONE ticket.
-   *
-   * Example:
-   *
-   * A -> NO ACK (1)
-   * A -> NO ACK (2)
-   * A -> NO ACK (3)
-   * A -> NO_SHOW
-   */
   private readonly MAX_TICKET_CONTACT_ATTEMPTS = 3;
 
-  /**
-   * All tickets are kept here.
-   *
-   * IMPORTANT:
-   * NO_SHOW tickets are NOT deleted from this array.
-   *
-   * They remain available for:
-   * - Dashboard history
-   * - Status display
-   * - Queue number history
-   * - Reporting
-   *
-   * They are simply excluded from the active waiting queue.
-   */
   private tickets: QueueTicket[] = [];
 
   private slots: QueueSlot[] = [];
@@ -125,6 +86,7 @@ export class QueueService {
   private queueNumberCounter = 0;
 
   constructor(
+    private readonly contactService: ContactService,
     @Optional()
     private readonly eventEmitter?: EventEmitter2,
   ) {}
@@ -254,7 +216,6 @@ export class QueueService {
     const ticket: QueueTicket = {
       ticketId: `TICK-${ticketNumber}`,
       queueNumber,
-
       gateId,
       plate,
       name,
@@ -298,7 +259,9 @@ export class QueueService {
     return ticket;
   }
 
-  async getActiveTicketForPlate(plate: string): Promise<QueueTicket | undefined> {
+  async getActiveTicketForPlate(
+    plate: string,
+  ): Promise<QueueTicket | undefined> {
     return this.tickets.find(
       (ticket) =>
         ticket.plate === plate &&
@@ -476,7 +439,9 @@ export class QueueService {
   // CALL NEXT CANDIDATE
   // ============================================================
 
-  private async callNextCandidate(slotId: string): Promise<QueueTicket | undefined> {
+  private async callNextCandidate(
+    slotId: string,
+  ): Promise<QueueTicket | undefined> {
     const rotation = this.rotations.get(slotId);
 
     if (!rotation || rotation.candidateTicketIds.length === 0) {
@@ -510,7 +475,8 @@ export class QueueService {
 
     this.emitStatusUpdated(ticket);
 
-    const currentAttempts = (this.contactAttempts.get(ticket.ticketId) ?? 0) + 1;
+    const currentAttempts =
+      (this.contactAttempts.get(ticket.ticketId) ?? 0) + 1;
 
     this.contactAttempts.set(ticket.ticketId, currentAttempts);
 
@@ -521,6 +487,18 @@ export class QueueService {
         `(${ticket.name}) - ` +
         `attempt ${currentAttempts}/${this.MAX_TICKET_CONTACT_ATTEMPTS} ` +
         `inside rotation slot ${slotId}`,
+    );
+
+    await this.contactService.notify({
+      ticketId: ticket.ticketId,
+      slotId,
+      phone: ticket.phone,
+      name: ticket.name,
+      preferredContactMethod: ticket.preferredContactMethod,
+    });
+
+    this.logger.log(
+      `[QueueService] Contact method: ${ticket.preferredContactMethod}`,
     );
 
     return ticket;
@@ -578,7 +556,9 @@ export class QueueService {
 
     const newCandidates = waitingTickets.slice(0, this.MAX_CONTACT_ATTEMPTS);
 
-    rotation.candidateTicketIds = newCandidates.map((ticket) => ticket.ticketId);
+    rotation.candidateTicketIds = newCandidates.map(
+      (ticket) => ticket.ticketId,
+    );
 
     rotation.currentIndex = 0;
     rotation.attempts = 0;
@@ -587,7 +567,9 @@ export class QueueService {
       `[Queue] Rotation rebuilt after removing ${removedTicketId}. ` +
         `Ticket remains in history as NO_SHOW. ` +
         `New candidates: ${
-          rotation.candidateTicketIds.length > 0 ? rotation.candidateTicketIds.join(', ') : 'NONE'
+          rotation.candidateTicketIds.length > 0
+            ? rotation.candidateTicketIds.join(', ')
+            : 'NONE'
         }`,
     );
   }
@@ -647,7 +629,8 @@ export class QueueService {
     this.contactAttempts.delete(ticket.ticketId);
 
     this.logger.log(
-      `[Queue] Ticket ${ticket.ticketId} ACKNOWLEDGED. ` + `Slot ${slotId} is now OCCUPIED.`,
+      `[Queue] Ticket ${ticket.ticketId} ACKNOWLEDGED. ` +
+        `Slot ${slotId} is now OCCUPIED.`,
     );
 
     return ticket;
@@ -669,7 +652,8 @@ export class QueueService {
       return;
     }
 
-    const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
+    const currentTicketId =
+      rotation.candidateTicketIds[rotation.currentIndex];
 
     if (!currentTicketId) {
       return;
@@ -733,14 +717,22 @@ export class QueueService {
        * New rotation:
        * B C D
        */
-      await this.rebuildRotationAfterRemoval(slotId, currentTicket.ticketId);
+      await this.rebuildRotationAfterRemoval(
+        slotId,
+        currentTicket.ticketId,
+      );
 
       const updatedRotation = this.rotations.get(slotId);
 
-      if (!updatedRotation || updatedRotation.candidateTicketIds.length === 0) {
+      if (
+        !updatedRotation ||
+        updatedRotation.candidateTicketIds.length === 0
+      ) {
         this.rotations.delete(slotId);
 
-        this.logger.log(`[Queue] No active waiting customers remain for slot ${slotId}.`);
+        this.logger.log(
+          `[Queue] No active waiting customers remain for slot ${slotId}.`,
+        );
 
         return {
           currentTicket,
@@ -797,7 +789,8 @@ export class QueueService {
 
     this.emitStatusUpdated(currentTicket);
 
-    rotation.currentIndex = (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
+    rotation.currentIndex =
+      (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
 
     const nextTicket = await this.callNextCandidate(slotId);
 
@@ -819,9 +812,12 @@ export class QueueService {
       throw new Error(`No active rotation for slot ${slotId}.`);
     }
 
-    const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
+    const currentTicketId =
+      rotation.candidateTicketIds[rotation.currentIndex];
 
-    const currentTicket = currentTicketId ? await this.getTicketById(currentTicketId) : undefined;
+    const currentTicket = currentTicketId
+      ? await this.getTicketById(currentTicketId)
+      : undefined;
 
     if (!currentTicket) {
       throw new Error(`Current rotation ticket not found.`);
@@ -838,7 +834,8 @@ export class QueueService {
         acknowledged: true,
         currentTicket: result,
         nextTicket: undefined,
-        attempts: this.contactAttempts.get(currentTicket.ticketId) ?? 0,
+        attempts:
+          this.contactAttempts.get(currentTicket.ticketId) ?? 0,
       };
     }
 
@@ -855,8 +852,9 @@ export class QueueService {
       attempts:
         result?.currentTicket?.status === 'NO_SHOW'
           ? this.MAX_TICKET_CONTACT_ATTEMPTS
-          : (this.contactAttempts.get(result?.currentTicket?.ticketId ?? currentTicket.ticketId) ??
-            0),
+          : (this.contactAttempts.get(
+                result?.currentTicket?.ticketId ?? currentTicket.ticketId,
+              ) ?? 0),
       rotation: result?.rotation,
     };
   }

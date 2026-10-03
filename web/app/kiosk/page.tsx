@@ -13,6 +13,12 @@ import { KioskAvatar } from '@/components/KioskAvatar';
 
 type AvatarState = 'idle' | 'talking' | 'listening';
 
+type ContactMethod =
+  | 'SMS'
+  | 'WHATSAPP'
+  | 'ELSAAYER_APP'
+  | 'CALLING_AGENT';
+
 // ------------------------------------------------------------
 // Backend-driven input mode.
 // ------------------------------------------------------------
@@ -22,6 +28,108 @@ type InputMode = 'VOICE' | 'BUTTONS' | 'TEXT';
 type KioskOutputPayloadWithMode = KioskOutputPayload & {
   inputMode?: InputMode;
 };
+
+// ------------------------------------------------------------
+// UI language
+//
+// Controlled entirely by NEXT_PUBLIC_APP_LANGUAGE in .env
+// ('en' or 'ar'; anything else falls back to 'ar'). This must
+// be a NEXT_PUBLIC_ variable since it's read in a client
+// component. Everything the kiosk itself renders — buttons,
+// keyboard layout, placeholders, direction — comes from this
+// dictionary. It does NOT change what the backend sends as
+// `message` (that's TTS/text generated server-side and would
+// need its own localization there).
+// ------------------------------------------------------------
+
+type AppLanguage = 'en' | 'ar';
+
+const APP_LANGUAGE: AppLanguage =
+  process.env.NEXT_PUBLIC_APP_LANGUAGE?.toLowerCase() === 'en'
+    ? 'en'
+    : 'ar';
+
+const STRINGS: Record<
+  AppLanguage,
+  {
+    dir: 'ltr' | 'rtl';
+    brand: string;
+    gatePrefix: string;
+    overlayTitle: string;
+    startButton: string;
+    yes: string;
+    no: string;
+    namePlaceholder: string;
+    phonePlaceholder: string;
+    space: string;
+    clear: string;
+    backspaceAriaName: string;
+    backspaceAriaPhone: string;
+    send: string;
+    contactMethods: Record<ContactMethod, string>;
+  }
+> = {
+  ar: {
+    dir: 'rtl',
+    brand: 'Toyota Smart Gate',
+    gatePrefix: 'بوابة',
+    overlayTitle: 'اضغط للبدء',
+    startButton: 'Start Kiosk',
+    yes: 'نعم',
+    no: 'لا',
+    namePlaceholder: 'أدخل اسمك',
+    phonePlaceholder: 'أدخل رقم الهاتف',
+    space: 'مسافة',
+    clear: 'مسح',
+    backspaceAriaName: 'حذف حرف',
+    backspaceAriaPhone: 'حذف رقم',
+    send: 'إرسال',
+    contactMethods: {
+      SMS: 'رسالة نصية',
+      WHATSAPP: 'واتساب',
+      ELSAAYER_APP: 'تطبيق الساير',
+      CALLING_AGENT: 'اتصال هاتفي',
+    },
+  },
+  en: {
+    dir: 'ltr',
+    brand: 'Toyota Smart Gate',
+    gatePrefix: 'Gate',
+    overlayTitle: 'Tap to Start',
+    startButton: 'Start Kiosk',
+    yes: 'Yes',
+    no: 'No',
+    namePlaceholder: 'Enter your name',
+    phonePlaceholder: 'Enter your phone number',
+    space: 'Space',
+    clear: 'Clear',
+    backspaceAriaName: 'Delete character',
+    backspaceAriaPhone: 'Delete digit',
+    send: 'Send',
+    contactMethods: {
+      SMS: 'SMS',
+      WHATSAPP: 'WhatsApp',
+      ELSAAYER_APP: 'Elsayer App',
+      CALLING_AGENT: 'Phone Call',
+    },
+  },
+};
+
+const T = STRINGS[APP_LANGUAGE];
+const DIR = T.dir;
+
+// ------------------------------------------------------------
+// Contact method picker (shown once the backend switches
+// CONTACT_METHOD_ASKING from VOICE to BUTTONS, after 2 failed
+// voice attempts)
+// ------------------------------------------------------------
+
+const CONTACT_METHODS: ContactMethod[] = [
+  'SMS',
+  'WHATSAPP',
+  'ELSAAYER_APP',
+  'CALLING_AGENT',
+];
 
 // ------------------------------------------------------------
 // Voice Activity Detection configuration
@@ -67,6 +175,9 @@ function KioskPageContent() {
   const [showPhoneInput, setShowPhoneInput] = useState(false);
 
   const [phoneInput, setPhoneInput] = useState('');
+
+  const [showContactMethodButtons, setShowContactMethodButtons] =
+    useState(false);
 
   // ------------------------------------------------------------
   // Audio refs
@@ -178,6 +289,7 @@ function KioskPageContent() {
     setShowNameInput(false);
     setShowConfirmationButtons(false);
     setShowPhoneInput(false);
+    setShowContactMethodButtons(false);
   };
 
   // ------------------------------------------------------------
@@ -187,6 +299,24 @@ function KioskPageContent() {
   const startRecording = async () => {
   if (isRecordingRef.current) {
     console.warn('[Kiosk][VAD] Recording already active.');
+    return;
+  }
+
+  // Never record when the backend wants button/text input
+  // (e.g. CONFIRMING_PHONE, CONTACT_METHOD_ASKING, NAME_ASKING,
+  // PHONE_ASKING). This guard lives here, not just at the call
+  // sites, so no future caller can accidentally start the mic
+  // while the kiosk is showing buttons or a keyboard.
+  if (textInputStateRef.current || inputModeRef.current !== 'VOICE') {
+    console.warn(
+      '[Kiosk][VAD] Skipping recording: input mode is not VOICE.',
+      {
+        inputMode: inputModeRef.current,
+        textInputState: textInputStateRef.current,
+      },
+    );
+
+    setIdle();
     return;
   }
 
@@ -941,10 +1071,18 @@ function KioskPageContent() {
 
   // ------------------------------------------------------------
   // Confirmation buttons
+  //
+  // `answer` is the internal, language-independent protocol
+  // value. The displayed label comes from T.yes / T.no, but the
+  // text actually emitted to the backend stays a fixed Arabic
+  // word so the backend's NLU (which parses Arabic transcripts)
+  // keeps working regardless of the UI language. If the backend
+  // should instead receive English text in English mode, this
+  // mapping needs to change together with the NLU parsing.
   // ------------------------------------------------------------
 
   const sendConfirmation = (
-    answer: 'نعم' | 'لا',
+    answer: 'YES' | 'NO',
   ) => {
     const currentSessionId =
       sessionIdRef.current;
@@ -957,6 +1095,9 @@ function KioskPageContent() {
       return;
     }
 
+    const protocolText =
+      answer === 'YES' ? 'نعم' : 'لا';
+
     console.log(
       '[Kiosk] Sending INPUT:',
       {
@@ -966,7 +1107,7 @@ function KioskPageContent() {
         state:
           'CONFIRMING_PHONE',
         audioBytes: 0,
-        text: answer,
+        text: protocolText,
       },
     );
 
@@ -976,10 +1117,61 @@ function KioskPageContent() {
       gateId,
       state:
         'CONFIRMING_PHONE',
-      text: answer,
+      text: protocolText,
     });
 
     setShowConfirmationButtons(false);
+
+    setIdle();
+  };
+
+  // ------------------------------------------------------------
+  // Contact method buttons
+  //
+  // Shown when the backend reports state CONTACT_METHOD_ASKING
+  // with inputMode BUTTONS (i.e. voice retries for this step
+  // exceeded the backend's retry limit and it fell back to a
+  // manual picker). The emitted text is always the ContactMethod
+  // enum key (e.g. 'SMS'), independent of the display language.
+  // ------------------------------------------------------------
+
+  const sendContactMethod = (
+    method: ContactMethod,
+  ) => {
+    const currentSessionId =
+      sessionIdRef.current;
+
+    if (!currentSessionId) {
+      console.warn(
+        '[Kiosk] Cannot send contact method: sessionId is missing',
+      );
+
+      return;
+    }
+
+    console.log(
+      '[Kiosk] Sending INPUT:',
+      {
+        sessionId:
+          currentSessionId,
+        gateId,
+        state:
+          'CONTACT_METHOD_ASKING',
+        audioBytes: 0,
+        text: method,
+      },
+    );
+
+    emitInput({
+      sessionId:
+        currentSessionId,
+      gateId,
+      state:
+        'CONTACT_METHOD_ASKING',
+      text: method,
+    });
+
+    setShowContactMethodButtons(false);
 
     setIdle();
   };
@@ -1061,9 +1253,14 @@ function KioskPageContent() {
           inputModeRef.current =
             resolvedInputMode;
 
+          // Whether to record or show a manual UI is driven
+          // purely by inputMode, the same signal the backend
+          // uses for every other state. This is what lets
+          // CONTACT_METHOD_ASKING go through its 2 voice
+          // attempts (inputMode: VOICE) before the backend
+          // switches it to inputMode: BUTTONS on the 3rd try.
           textInputStateRef.current =
-            resolvedInputMode !==
-            'VOICE';
+            resolvedInputMode !== 'VOICE';
 
           // ------------------------------------------------------
           // Input UI
@@ -1072,6 +1269,15 @@ function KioskPageContent() {
           hideAllInputUI();
 
           if (
+            resolvedInputMode ===
+              'BUTTONS' &&
+            typedPayload.state ===
+              'CONTACT_METHOD_ASKING'
+          ) {
+            setShowContactMethodButtons(
+              true,
+            );
+          } else if (
             resolvedInputMode ===
             'BUTTONS'
           ) {
@@ -1450,73 +1656,67 @@ function KioskPageContent() {
   }, []);
 
   // ------------------------------------------------------------
-  // Arabic keyboard
+  // Name keyboard handlers
+  //
+  // Dedicated functions rather than comparing the pressed key's
+  // display text — that way the keyboard layout and control
+  // labels can change per language without touching the logic.
   // ------------------------------------------------------------
 
-  const handleKeyboardPress = (
+  const handleNameKeyPress = (
     key: string,
   ) => {
-    if (key === '⌫') {
-      setNameInput((prev) =>
-        prev.slice(0, -1),
-      );
-
-      return;
-    }
-
-    if (key === 'مسح') {
-      setNameInput('');
-
-      return;
-    }
-
-    if (key === 'مسافة') {
-      setNameInput(
-        (prev) =>
-          prev + ' ',
-      );
-
-      return;
-    }
-
     setNameInput(
       (prev) =>
         prev + key,
     );
   };
 
+  const handleNameBackspace = () => {
+    setNameInput((prev) =>
+      prev.slice(0, -1),
+    );
+  };
+
+  const handleNameClear = () => {
+    setNameInput('');
+  };
+
+  const handleNameSpace = () => {
+    setNameInput(
+      (prev) =>
+        prev + ' ',
+    );
+  };
+
   // ------------------------------------------------------------
-  // Phone keypad
+  // Phone keypad handlers
   // ------------------------------------------------------------
 
   const handlePhoneKeyPress = (
     key: string,
   ) => {
-    if (key === '⌫') {
-      setPhoneInput((prev) =>
-        prev.slice(0, -1),
-      );
-
-      return;
-    }
-
-    if (key === 'مسح') {
-      setPhoneInput('');
-
-      return;
-    }
-
     setPhoneInput(
       (prev) =>
         prev + key,
     );
   };
 
+  const handlePhoneBackspace = () => {
+    setPhoneInput((prev) =>
+      prev.slice(0, -1),
+    );
+  };
+
+  const handlePhoneClear = () => {
+    setPhoneInput('');
+  };
+
   // ------------------------------------------------------------
   // Keyboards
   // ------------------------------------------------------------
 
-  const keyboardRows: string[][] = [
+  const ARABIC_KEYBOARD_ROWS: string[][] = [
     [
       'ض',
       'ص',
@@ -1560,30 +1760,71 @@ function KioskPageContent() {
     ],
   ];
 
+  const ENGLISH_KEYBOARD_ROWS: string[][] = [
+    [
+      'Q',
+      'W',
+      'E',
+      'R',
+      'T',
+      'Y',
+      'U',
+      'I',
+      'O',
+      'P',
+    ],
+    [
+      'A',
+      'S',
+      'D',
+      'F',
+      'G',
+      'H',
+      'J',
+      'K',
+      'L',
+    ],
+    [
+      'Z',
+      'X',
+      'C',
+      'V',
+      'B',
+      'N',
+      'M',
+    ],
+  ];
+
+  const keyboardRows: string[][] =
+    APP_LANGUAGE === 'en'
+      ? ENGLISH_KEYBOARD_ROWS
+      : ARABIC_KEYBOARD_ROWS;
+
   const phoneKeyboardRows: string[][] = [
     ['1', '2', '3'],
     ['4', '5', '6'],
     ['7', '8', '9'],
-    ['مسح', '0', '⌫'],
+    [T.clear, '0', '⌫'],
   ];
 
   const isKeyboardActive =
     showNameInput ||
-    showPhoneInput;
+    showPhoneInput ||
+    showContactMethodButtons;
 
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
 
   return (
-    <main className="kiosk">
+    <main className="kiosk" dir={DIR}>
       <div className="kiosk-statusbar">
         <span className="kiosk-brand">
-          Toyota Smart Gate
+          {T.brand}
         </span>
 
         <span className="kiosk-gate-pill">
-          بوابة {gateId}
+          {T.gatePrefix} {gateId}
         </span>
       </div>
 
@@ -1603,7 +1844,7 @@ function KioskPageContent() {
         {message && (
           <p
             className="kiosk-message"
-            dir="rtl"
+            dir={DIR}
             style={{
               fontSize:
                 isKeyboardActive
@@ -1622,27 +1863,64 @@ function KioskPageContent() {
         {showConfirmationButtons && (
           <div
             className="kiosk-confirm-wrap"
-            dir="rtl"
+            dir={DIR}
           >
             <button
               type="button"
               onClick={() =>
-                sendConfirmation('نعم')
+                sendConfirmation('YES')
               }
               className="kiosk-confirm-btn kiosk-confirm-btn--yes"
             >
-              نعم
+              {T.yes}
             </button>
 
             <button
               type="button"
               onClick={() =>
-                sendConfirmation('لا')
+                sendConfirmation('NO')
               }
               className="kiosk-confirm-btn kiosk-confirm-btn--no"
             >
-              لا
+              {T.no}
             </button>
+          </div>
+        )}
+
+        {/* --------------------------------------------------
+            Contact method buttons
+
+            Shown when the backend state is
+            CONTACT_METHOD_ASKING (e.g. after voice retries
+            for this step exceeded the backend's retry
+            limit).
+        -------------------------------------------------- */}
+
+        {showContactMethodButtons && (
+          <div
+            className="kiosk-contact-method-wrap"
+            dir={DIR}
+          >
+            {CONTACT_METHODS.map(
+              (method) => (
+                <button
+                  key={method}
+                  type="button"
+                  onClick={() =>
+                    sendContactMethod(
+                      method,
+                    )
+                  }
+                  className="kiosk-contact-method-btn"
+                >
+                  {
+                    T.contactMethods[
+                      method
+                    ]
+                  }
+                </button>
+              ),
+            )}
           </div>
         )}
 
@@ -1657,14 +1935,14 @@ function KioskPageContent() {
               type="text"
               value={nameInput}
               readOnly
-              placeholder="أدخل اسمك"
-              dir="rtl"
+              placeholder={T.namePlaceholder}
+              dir={DIR}
               className="kiosk-name-input"
             />
 
             <div
               className="kiosk-keyboard"
-              dir="rtl"
+              dir={DIR}
             >
               {keyboardRows.map(
                 (
@@ -1681,7 +1959,7 @@ function KioskPageContent() {
                           key={key}
                           type="button"
                           onClick={() =>
-                            handleKeyboardPress(
+                            handleNameKeyPress(
                               key,
                             )
                           }
@@ -1698,43 +1976,39 @@ function KioskPageContent() {
 
             <div
               className="kiosk-keyboard-controls"
-              dir="rtl"
+              dir={DIR}
             >
               <button
                 type="button"
-                onClick={() =>
-                  handleKeyboardPress(
-                    'مسافة',
-                  )
+                onClick={
+                  handleNameSpace
                 }
                 className="kiosk-key kiosk-key--wide"
               >
-                مسافة
+                {T.space}
               </button>
 
               <button
                 type="button"
-                onClick={() =>
-                  handleKeyboardPress(
-                    '⌫',
-                  )
+                onClick={
+                  handleNameBackspace
                 }
                 className="kiosk-key kiosk-key--control"
-                aria-label="حذف حرف"
+                aria-label={
+                  T.backspaceAriaName
+                }
               >
                 ⌫
               </button>
 
               <button
                 type="button"
-                onClick={() =>
-                  handleKeyboardPress(
-                    'مسح',
-                  )
+                onClick={
+                  handleNameClear
                 }
                 className="kiosk-key kiosk-key--control"
               >
-                مسح
+                {T.clear}
               </button>
             </div>
 
@@ -1744,7 +2018,7 @@ function KioskPageContent() {
               disabled={!nameInput.trim()}
               className="kiosk-send-button"
             >
-              إرسال
+              {T.send}
             </button>
           </div>
         )}
@@ -1760,14 +2034,14 @@ function KioskPageContent() {
               type="tel"
               value={phoneInput}
               readOnly
-              placeholder="أدخل رقم الهاتف"
-              dir="rtl"
+              placeholder={T.phonePlaceholder}
+              dir={DIR}
               className="kiosk-name-input"
             />
 
             <div
               className="kiosk-keyboard"
-              dir="rtl"
+              dir={DIR}
             >
               {phoneKeyboardRows.map(
                 (
@@ -1779,30 +2053,41 @@ function KioskPageContent() {
                     key={rowIndex}
                   >
                     {row.map(
-                      (key) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() =>
-                            handlePhoneKeyPress(
-                              key,
-                            )
-                          }
-                          className={
-                            key === '⌫' ||
-                            key === 'مسح'
-                              ? 'kiosk-key kiosk-key--control'
-                              : 'kiosk-key'
-                          }
-                          aria-label={
-                            key === '⌫'
-                              ? 'حذف رقم'
-                              : undefined
-                          }
-                        >
-                          {key}
-                        </button>
-                      ),
+                      (key) => {
+                        const isControl =
+                          key === '⌫' ||
+                          key === T.clear;
+
+                        const onClick =
+                          key === '⌫'
+                            ? handlePhoneBackspace
+                            : key === T.clear
+                              ? handlePhoneClear
+                              : () =>
+                                  handlePhoneKeyPress(
+                                    key,
+                                  );
+
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={onClick}
+                            className={
+                              isControl
+                                ? 'kiosk-key kiosk-key--control'
+                                : 'kiosk-key'
+                            }
+                            aria-label={
+                              key === '⌫'
+                                ? T.backspaceAriaPhone
+                                : undefined
+                            }
+                          >
+                            {key}
+                          </button>
+                        );
+                      },
                     )}
                   </div>
                 ),
@@ -1815,7 +2100,7 @@ function KioskPageContent() {
               disabled={!phoneInput.trim()}
               className="kiosk-send-button"
             >
-              إرسال
+              {T.send}
             </button>
           </div>
         )}
@@ -1831,18 +2116,18 @@ function KioskPageContent() {
             <div className="kiosk-overlay-card">
 
               <span className="kiosk-overlay-eyebrow">
-                بوابة {gateId}
+                {T.gatePrefix} {gateId}
               </span>
 
               <p className="kiosk-overlay-title">
-                اضغط للبدء
+                {T.overlayTitle}
               </p>
 
               <button
                 onClick={unlockAudio}
                 className="kiosk-start-button"
               >
-                Start Kiosk
+                {T.startButton}
               </button>
 
             </div>
@@ -2211,6 +2496,116 @@ function KioskPageContent() {
           outline-offset: 3px;
         }
 
+        .kiosk-contact-method-wrap {
+          display: grid;
+
+          grid-template-columns:
+            1fr 1fr;
+
+          gap:
+            clamp(
+              12px,
+              2vw,
+              20px
+            );
+
+          width:
+            min(
+              94vw,
+              640px
+            );
+
+          animation:
+            kiosk-rise
+            0.32s ease;
+        }
+
+        .kiosk-contact-method-btn {
+          min-height:
+            clamp(
+              70px,
+              10vh,
+              100px
+            );
+
+          font-family: inherit;
+
+          font-size:
+            clamp(
+              1.3rem,
+              2.2vw,
+              1.7rem
+            );
+
+          font-weight: 700;
+
+          color: var(--ink);
+
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.06
+            );
+
+          border:
+            1.5px solid
+            var(--panel-border);
+
+          border-radius: 18px;
+
+          cursor: pointer;
+
+          transition:
+            transform 0.08s ease,
+            box-shadow 0.15s ease,
+            background 0.12s ease;
+        }
+
+        .kiosk-contact-method-btn:hover {
+          background:
+            rgba(
+              255,
+              255,
+              255,
+              0.1
+            );
+        }
+
+        .kiosk-contact-method-btn:active {
+          background:
+            rgba(
+              235,
+              10,
+              30,
+              0.2
+            );
+
+          border-color:
+            rgba(
+              235,
+              10,
+              30,
+              0.55
+            );
+
+          transform: scale(0.97);
+        }
+
+        .kiosk-contact-method-btn:focus-visible {
+          outline:
+            3px solid
+            rgba(
+              120,
+              170,
+              255,
+              0.7
+            );
+
+          outline-offset: 3px;
+        }
+
         .kiosk-namecard {
           width:
             min(
@@ -2280,8 +2675,6 @@ function KioskPageContent() {
 
           font-weight: 700;
 
-          text-align: right;
-
           color: var(--ink);
 
           background:
@@ -2301,6 +2694,14 @@ function KioskPageContent() {
           outline: none;
 
           min-height: 1.9em;
+        }
+
+        .kiosk-name-input[dir='rtl'] {
+          text-align: right;
+        }
+
+        .kiosk-name-input[dir='ltr'] {
+          text-align: left;
         }
 
         .kiosk-keyboard {
@@ -2750,7 +3151,8 @@ function KioskPageContent() {
           .kiosk-namecard,
           .kiosk-keyboard,
           .kiosk-overlay,
-          .kiosk-confirm-wrap {
+          .kiosk-confirm-wrap,
+          .kiosk-contact-method-wrap {
             animation: none;
           }
         }

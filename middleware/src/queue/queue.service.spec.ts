@@ -32,7 +32,7 @@ describe('QueueService', () => {
         true, // found: true in SAP
       );
 
-      expect(ticket.isToyotaCustomer).toBe(true);
+      expect(ticket.IsToyotaCustomer).toBe(true);
       expect(ticket.IsToyotaCustomer).toBe(true);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         EVENTS.QUEUE_TICKET_ADDED,
@@ -51,7 +51,7 @@ describe('QueueService', () => {
         false, // found: false in SAP
       );
 
-      expect(ticket.isToyotaCustomer).toBe(false);
+      expect(ticket.IsToyotaCustomer).toBe(false);
       expect(ticket.IsToyotaCustomer).toBe(false);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         EVENTS.QUEUE_TICKET_ADDED,
@@ -67,9 +67,10 @@ describe('QueueService', () => {
         '01100000000',
         'QR',
         'SMS',
+        false
       );
 
-      expect(ticket.isToyotaCustomer).toBe(false);
+      expect(ticket.IsToyotaCustomer).toBe(false);
       expect(ticket.IsToyotaCustomer).toBe(false);
     });
   });

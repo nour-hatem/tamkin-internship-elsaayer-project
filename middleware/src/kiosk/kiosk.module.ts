@@ -18,6 +18,8 @@ import {
 } from 'src/ai';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypedEventEmitter } from '@common/typed-event-emitter.service';
+import { StubGateAdapter } from 'src/gate/adapters/stub-gate.adapter';
+import { KioskRedisService } from './kiosk.redis';
 import { GateModule } from 'src/gate/gate.module';
 
 @Module({
@@ -31,6 +33,7 @@ import { GateModule } from 'src/gate/gate.module';
       provide: TTS_ADAPTER_TOKEN,
       useClass: ElevenLabsTtsAdapter,
     },
+    KioskRedisService,
     {
       provide: STT_ADAPTER_TOKEN,
       useClass: ElevenLabsSttAdapter,
