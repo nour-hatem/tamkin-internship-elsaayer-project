@@ -5,7 +5,7 @@ import { EVENTS } from '../common/events';
 import type { ContactOutcomePayload } from '../common/typed-event-emitter.service';
 
 export type QueueTicketStatus =
-  'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED';
+  'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED' | 'NO_SHOW';
 
 export type QueueSlotStatus = 'AVAILABLE' | 'OCCUPIED';
 
@@ -17,11 +17,11 @@ export interface QueueTicket {
   name: string;
   phone: string;
   source: 'QR' | 'VOICE';
-  preferredContactMethod: ContactMethod;
+  preferredContactMethod?: ContactMethod;
   status: QueueTicketStatus;
   createdAt: Date;
-  isToyotaCustomer: boolean;
-  IsToyotaCustomer: boolean;
+  isToyotaCustomer?: boolean;
+  IsToyotaCustomer?: boolean;
 }
 
 export interface QueueSlot {
@@ -32,8 +32,14 @@ export interface QueueSlot {
 
 export interface SlotRotationState {
   slotId: string;
+
+  // Current 3-customer rotation window
   candidateTicketIds: string[];
+
+  // Current candidate inside the rotation window
   currentIndex: number;
+
+  // Total contact attempts of the current ticket
   attempts: number;
 }
 
@@ -41,11 +47,80 @@ export interface SlotRotationState {
 export class QueueService {
   private readonly logger = new Logger(QueueService.name);
 
+  /**
+   * Maximum number of customers inside one rotation window.
+   *
+   * IMPORTANT:
+   * This is NOT the total number of customers in the queue.
+   *
+   * Example:
+   *
+   * A B C D E
+   *
+   * First rotation:
+   * A B C
+   *
+   * If nobody leaves:
+   * A -> B -> C -> A -> B -> C
+   *
+   * If A becomes NO_SHOW:
+   * Active queue:
+   * B C D E
+   *
+   * New rotation:
+   * B C D
+   */
   private readonly MAX_CONTACT_ATTEMPTS = 3;
 
+  /**
+   * Maximum number of total NO-ACK contacts allowed
+   * for ONE ticket.
+   *
+   * Example:
+   *
+   * A -> NO ACK (1)
+   * A -> NO ACK (2)
+   * A -> NO ACK (3)
+   * A -> NO_SHOW
+   */
+  private readonly MAX_TICKET_CONTACT_ATTEMPTS = 3;
+
+  /**
+   * All tickets are kept here.
+   *
+   * IMPORTANT:
+   * NO_SHOW tickets are NOT deleted from this array.
+   *
+   * They remain available for:
+   * - Dashboard history
+   * - Status display
+   * - Queue number history
+   * - Reporting
+   *
+   * They are simply excluded from the active waiting queue.
+   */
   private tickets: QueueTicket[] = [];
+
   private slots: QueueSlot[] = [];
+
+  /**
+   * One rotation state per slot.
+   */
   private rotations = new Map<string, SlotRotationState>();
+
+  /**
+   * Total contact attempts for every ticket.
+   *
+   * This is independent from the rotation attempts.
+   */
+  private contactAttempts = new Map<string, number>();
+
+  /**
+   * These counters are only fallback values.
+   *
+   * The actual next numbers are calculated from existing
+   * tickets so numbering continues correctly.
+   */
   private ticketCounter = 1000;
   private queueNumberCounter = 0;
 
@@ -53,6 +128,10 @@ export class QueueService {
     @Optional()
     private readonly eventEmitter?: EventEmitter2,
   ) {}
+
+  // ============================================================
+  // EVENTS
+  // ============================================================
 
   private emitStatusUpdated(ticket: QueueTicket): void {
     this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_STATUS_UPDATED, {
@@ -62,64 +141,159 @@ export class QueueService {
     });
   }
 
+  // ============================================================
+  // NUMBER GENERATION
+  // ============================================================
+
+  /**
+   * Get the next Queue Number.
+   *
+   * IMPORTANT:
+   *
+   * We do NOT simply do:
+   *
+   * ++this.queueNumberCounter
+   *
+   * because the service may be initialized again.
+   *
+   * Instead, we calculate from the existing tickets.
+   *
+   * Example:
+   *
+   * Existing:
+   * #1
+   * #2
+   * #3
+   * #4
+   * #5
+   *
+   * New ticket:
+   * #6
+   *
+   * NO_SHOW tickets are included because their queue numbers
+   * must remain part of the history.
+   */
+  private getNextQueueNumber(): number {
+    const maxQueueNumber = this.tickets.reduce(
+      (max, ticket) => Math.max(max, ticket.queueNumber),
+      0,
+    );
+
+    const nextQueueNumber = maxQueueNumber + 1;
+
+    this.queueNumberCounter = nextQueueNumber;
+
+    return nextQueueNumber;
+  }
+
+  /**
+   * Get the next Ticket ID number.
+   *
+   * Example:
+   *
+   * TICK-1000
+   * TICK-1001
+   * TICK-1002
+   *
+   * New:
+   * TICK-1003
+   */
+  private getNextTicketNumber(): number {
+    const maxTicketNumber = this.tickets.reduce((max, ticket) => {
+      const match = ticket.ticketId.match(/^TICK-(\d+)$/);
+
+      if (!match) {
+        return max;
+      }
+
+      return Math.max(max, Number(match[1]));
+    }, 999);
+
+    const nextTicketNumber = maxTicketNumber + 1;
+
+    this.ticketCounter = nextTicketNumber;
+
+    return nextTicketNumber;
+  }
+
+  // ============================================================
+  // QUEUE / TICKETS
+  // ============================================================
+
   async enqueue(
     gateId: string,
     plate: string,
     name: string,
     phone: string,
     source: 'QR' | 'VOICE',
-    preferredContactMethod: ContactMethod,
-    isToyotaCustomer: boolean = false,
+    preferredContactMethod?: ContactMethod,
+    isToyotaCustomer?: boolean,
   ): Promise<QueueTicket> {
-    this.logger.log(
-      `[Queue] Creating queue ticket for plate: ${plate}, name: ${name}, source: ${source}, gateId: ${gateId}`,
-      {
-        plate,
-        name,
-        source,
-        gateId,
-        preferredContactMethod,
-        isToyotaCustomer,
-      },
-    );
+    /**
+     * IMPORTANT:
+     *
+     * Queue number is generated from the existing tickets.
+     *
+     * This means:
+     *
+     * #1
+     * #2
+     * #3
+     * #4
+     * #5
+     *
+     * New ticket = #6
+     *
+     * Even if #2 or #3 is NO_SHOW, their records
+     * remain in this.tickets and their numbers are preserved.
+     */
+    const queueNumber = this.getNextQueueNumber();
 
-    this.ticketCounter += 1;
-    this.queueNumberCounter += 1;
-
-    const ticketId = `TICK-${this.ticketCounter}`;
+    const ticketNumber = this.getNextTicketNumber();
 
     const ticket: QueueTicket = {
-      ticketId,
-      queueNumber: this.queueNumberCounter,
+      ticketId: `TICK-${ticketNumber}`,
+      queueNumber,
+
       gateId,
       plate,
       name,
       phone,
       source,
+
       preferredContactMethod,
+
       status: 'WAITING',
+
       createdAt: new Date(),
-      isToyotaCustomer,
-      IsToyotaCustomer: isToyotaCustomer,
+
+      isToyotaCustomer: isToyotaCustomer ?? false,
+      IsToyotaCustomer: isToyotaCustomer ?? false,
     };
 
+    /**
+     * IMPORTANT:
+     *
+     * We ALWAYS push the ticket into this.tickets.
+     *
+     * NO_SHOW tickets are also kept here.
+     *
+     * We never delete tickets from this array
+     * just because they leave the active queue.
+     */
     this.tickets.push(ticket);
+
+    this.contactAttempts.set(ticket.ticketId, 0);
+
+    this.logger.log(
+      `[Queue] Ticket added: ${ticket.ticketId} | ` +
+        `Queue #${ticket.queueNumber} | ` +
+        `${ticket.plate} | Gate ${ticket.gateId}`,
+    );
 
     this.eventEmitter?.emit(EVENTS.QUEUE_TICKET_ADDED, {
       ticket,
     });
-
-    this.logger.log(
-      `[Queue] Queue ticket created: ${ticketId} (#${ticket.queueNumber}) for plate: ${plate}, name: ${name}, source: ${source}`,
-      {
-        ticketId: ticket.ticketId,
-        plate: ticket.plate,
-        queueNumber: ticket.queueNumber,
-        gateId: ticket.gateId,
-        source: ticket.source,
-        preferredContactMethod: ticket.preferredContactMethod,
-      },
-    );
 
     return ticket;
   }
@@ -127,12 +301,17 @@ export class QueueService {
   async getActiveTicketForPlate(plate: string): Promise<QueueTicket | undefined> {
     return this.tickets.find(
       (ticket) =>
-        ticket.plate === plate && ticket.status !== 'COMPLETED' && ticket.status !== 'SKIPPED',
+        ticket.plate === plate &&
+        ticket.status !== 'COMPLETED' &&
+        ticket.status !== 'SKIPPED' &&
+        ticket.status !== 'NO_SHOW',
     );
   }
 
   async getNextWaitingTicket(): Promise<QueueTicket | undefined> {
-    return this.tickets.find((ticket) => ticket.status === 'WAITING');
+    return this.tickets
+      .filter((ticket) => ticket.status === 'WAITING')
+      .sort((a, b) => a.queueNumber - b.queueNumber)[0];
   }
 
   async getTicketById(ticketId: string): Promise<QueueTicket | undefined> {
@@ -150,28 +329,52 @@ export class QueueService {
     }
 
     ticket.status = status;
-    this.emitStatusUpdated(ticket);
 
-    this.logger.log(
-      `[QueueService] Ticket ${ticket.ticketId} (#${ticket.queueNumber}) status changed to ${status}`,
-    );
+    this.emitStatusUpdated(ticket);
 
     return ticket;
   }
 
+  /**
+   * Return ONLY active waiting customers.
+   *
+   * NO_SHOW tickets are intentionally excluded.
+   *
+   * They are still present in this.tickets,
+   * but they are not eligible for rotation.
+   */
   async getWaitingTickets(): Promise<QueueTicket[]> {
-    return this.tickets.filter((ticket) => ticket.status === 'WAITING');
+    return this.tickets
+      .filter((ticket) => ticket.status === 'WAITING')
+      .sort((a, b) => a.queueNumber - b.queueNumber);
   }
 
+  /**
+   * Return ALL tickets including:
+   *
+   * WAITING
+   * CALLED
+   * ACKNOWLEDGED
+   * IN_SERVICE
+   * COMPLETED
+   * NO_SHOW
+   *
+   * IMPORTANT:
+   * Nothing is removed from history.
+   */
   async getAllTickets(): Promise<QueueTicket[]> {
-    return this.tickets;
+    return [...this.tickets];
   }
+
+  // ============================================================
+  // SLOTS
+  // ============================================================
 
   async createSlot(slotId: string, gateId: string): Promise<QueueSlot> {
-    const existingSlot = this.slots.find((slot) => slot.slotId === slotId);
+    const existing = await this.getSlot(slotId);
 
-    if (existingSlot) {
-      return existingSlot;
+    if (existing) {
+      return existing;
     }
 
     const slot: QueueSlot = {
@@ -182,8 +385,6 @@ export class QueueService {
 
     this.slots.push(slot);
 
-    this.logger.log(`[QueueService] Slot ${slotId} created for ${gateId}`);
-
     return slot;
   }
 
@@ -192,17 +393,14 @@ export class QueueService {
   }
 
   async getAllSlots(): Promise<QueueSlot[]> {
-    return this.slots;
+    return [...this.slots];
   }
 
-  async simulateSlotAvailable(
-    slotId: string,
-    gateId: string,
-  ): Promise<{
-    slot: QueueSlot;
-    selectedTicket?: QueueTicket;
-    rotation: SlotRotationState;
-  }> {
+  // ============================================================
+  // SLOT AVAILABLE / START ROTATION
+  // ============================================================
+
+  async simulateSlotAvailable(slotId: string, gateId: string) {
     let slot = await this.getSlot(slotId);
 
     if (!slot) {
@@ -210,18 +408,26 @@ export class QueueService {
     }
 
     if (slot.status === 'OCCUPIED') {
-      throw new Error(`Slot ${slotId} is currently occupied`);
+      throw new Error(`Slot ${slotId} is already occupied.`);
     }
 
     slot.status = 'AVAILABLE';
 
+    /**
+     * Only WAITING tickets participate
+     * in the active rotation.
+     *
+     * NO_SHOW tickets remain in this.tickets
+     * but will NOT appear here.
+     */
     const waitingTickets = await this.getWaitingTickets();
 
     if (waitingTickets.length === 0) {
-      this.logger.log(`[QueueService] Slot ${slotId} is available but queue is empty`);
+      this.rotations.delete(slotId);
 
       return {
         slot,
+        selectedTicket: undefined,
         rotation: {
           slotId,
           candidateTicketIds: [],
@@ -231,6 +437,16 @@ export class QueueService {
       };
     }
 
+    /**
+     * Build the first rotation window.
+     *
+     * Example:
+     *
+     * A B C D E
+     *
+     * candidates:
+     * A B C
+     */
     const candidates = waitingTickets.slice(0, this.MAX_CONTACT_ATTEMPTS);
 
     const rotation: SlotRotationState = {
@@ -243,14 +459,8 @@ export class QueueService {
     this.rotations.set(slotId, rotation);
 
     this.logger.log(
-      `[Queue] Queue rotation triggered: slotId ${slotId}, candidate count ${candidates.length}, attempts ${rotation.attempts}`,
-      {
-        slotId,
-        gateId,
-        candidateCount: candidates.length,
-        candidateTicketIds: rotation.candidateTicketIds,
-        attempts: rotation.attempts,
-      },
+      `[Queue] Slot ${slotId} available. ` +
+        `Starting rotation: ${rotation.candidateTicketIds.join(', ')}`,
     );
 
     const selectedTicket = await this.callNextCandidate(slotId);
@@ -261,6 +471,10 @@ export class QueueService {
       rotation,
     };
   }
+
+  // ============================================================
+  // CALL NEXT CANDIDATE
+  // ============================================================
 
   private async callNextCandidate(slotId: string): Promise<QueueTicket | undefined> {
     const rotation = this.rotations.get(slotId);
@@ -277,230 +491,373 @@ export class QueueService {
       return undefined;
     }
 
+    /**
+     * Safety check.
+     *
+     * A ticket may have left the active queue
+     * since the rotation was created.
+     */
+    if (
+      ticket.status === 'NO_SHOW' ||
+      ticket.status === 'ACKNOWLEDGED' ||
+      ticket.status === 'COMPLETED' ||
+      ticket.status === 'SKIPPED'
+    ) {
+      return undefined;
+    }
+
     ticket.status = 'CALLED';
+
     this.emitStatusUpdated(ticket);
 
-    rotation.attempts += 1;
+    const currentAttempts = (this.contactAttempts.get(ticket.ticketId) ?? 0) + 1;
+
+    this.contactAttempts.set(ticket.ticketId, currentAttempts);
+
+    rotation.attempts = currentAttempts;
 
     this.logger.log(
-      `[Queue] Queue rotation candidate called: slotId ${slotId}, ticketId ${ticket.ticketId}, plate ${ticket.plate}, queueNumber ${ticket.queueNumber}, attempt ${rotation.attempts}/${this.MAX_CONTACT_ATTEMPTS}, method ${ticket.preferredContactMethod}`,
-      {
-        slotId,
-        ticketId: ticket.ticketId,
-        plate: ticket.plate,
-        queueNumber: ticket.queueNumber,
-        attemptCount: rotation.attempts,
-        maxAttempts: this.MAX_CONTACT_ATTEMPTS,
-        contactMethod: ticket.preferredContactMethod,
-      },
+      `[Queue] Contacting ${ticket.ticketId} ` +
+        `(${ticket.name}) - ` +
+        `attempt ${currentAttempts}/${this.MAX_TICKET_CONTACT_ATTEMPTS} ` +
+        `inside rotation slot ${slotId}`,
     );
 
     return ticket;
   }
 
+  // ============================================================
+  // REBUILD ROTATION AFTER NO_SHOW
+  // ============================================================
+
   /**
-   * Handles a successful contact acknowledgement.
+   * Rebuild the current rotation window after
+   * a ticket becomes NO_SHOW.
    *
-   * ContactService emits this event when the customer accepts
-   * the slot assignment.
+   * IMPORTANT:
+   *
+   * We DO NOT delete the ticket.
+   *
+   * Example:
+   *
+   * Before:
+   *
+   * A B C D E
+   *
+   * A -> NO_SHOW
+   *
+   * Tickets array:
+   *
+   * A B C D E
+   *
+   * Active waiting queue:
+   *
+   * B C D E
+   *
+   * New rotation:
+   *
+   * B C D
    */
-  @OnEvent(EVENTS.CONTACT_ACK)
-  async handleContactAck(payload: ContactOutcomePayload): Promise<void> {
-    const { ticketId, slotId } = payload;
+  private async rebuildRotationAfterRemoval(
+    slotId: string,
+    removedTicketId: string,
+  ): Promise<void> {
+    const rotation = this.rotations.get(slotId);
 
-    const slot = await this.getSlot(slotId);
-
-    if (!slot) {
-      this.logger.warn(`[QueueService] CONTACT_ACK ignored. Slot ${slotId} does not exist.`);
+    if (!rotation) {
       return;
     }
+
+    /**
+     * Get only WAITING tickets.
+     *
+     * The NO_SHOW ticket remains in
+     * this.tickets but is naturally excluded.
+     */
+    const waitingTickets = await this.getWaitingTickets();
+
+    const newCandidates = waitingTickets.slice(0, this.MAX_CONTACT_ATTEMPTS);
+
+    rotation.candidateTicketIds = newCandidates.map((ticket) => ticket.ticketId);
+
+    rotation.currentIndex = 0;
+    rotation.attempts = 0;
+
+    this.logger.log(
+      `[Queue] Rotation rebuilt after removing ${removedTicketId}. ` +
+        `Ticket remains in history as NO_SHOW. ` +
+        `New candidates: ${
+          rotation.candidateTicketIds.length > 0 ? rotation.candidateTicketIds.join(', ') : 'NONE'
+        }`,
+    );
+  }
+
+  // ============================================================
+  // CONTACT ACK
+  // ============================================================
+
+  @OnEvent(EVENTS.CONTACT_ACK)
+  async handleContactAck(payload: ContactOutcomePayload) {
+    const slotId = payload.slotId;
 
     const rotation = this.rotations.get(slotId);
 
     if (!rotation) {
-      this.logger.warn(
-        `[QueueService] CONTACT_ACK ignored. No active rotation for slot ${slotId}.`,
-      );
+      this.logger.warn(`[Queue] No active rotation found for slot ${slotId}`);
+
       return;
     }
 
-    const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
+    const ticketId = rotation.candidateTicketIds[rotation.currentIndex];
 
-    if (currentTicketId !== ticketId) {
-      this.logger.warn(
-        `[QueueService] CONTACT_ACK ignored. Ticket ${ticketId} is not the current candidate for slot ${slotId}. Current ticket: ${currentTicketId}`,
-      );
+    if (!ticketId) {
       return;
     }
 
     const ticket = await this.getTicketById(ticketId);
 
     if (!ticket) {
-      this.logger.warn(`[QueueService] CONTACT_ACK ignored. Ticket ${ticketId} does not exist.`);
       return;
     }
 
+    /**
+     * Customer ACKED.
+     *
+     * The ticket stays in this.tickets
+     * for history, but leaves the active
+     * waiting rotation.
+     */
     ticket.status = 'ACKNOWLEDGED';
-    this.emitStatusUpdated(ticket);
-    slot.status = 'OCCUPIED';
 
+    this.emitStatusUpdated(ticket);
+
+    const slot = await this.getSlot(slotId);
+
+    if (slot) {
+      slot.status = 'OCCUPIED';
+    }
+
+    /**
+     * Delete only the rotation state.
+     *
+     * DO NOT delete the ticket.
+     */
     this.rotations.delete(slotId);
 
-    this.logger.log(`[QueueService] Queue #${ticket.queueNumber} acknowledged slot ${slotId}`);
+    this.contactAttempts.delete(ticket.ticketId);
+
+    this.logger.log(
+      `[Queue] Ticket ${ticket.ticketId} ACKNOWLEDGED. ` + `Slot ${slotId} is now OCCUPIED.`,
+    );
+
+    return ticket;
   }
 
-  /**
-   * Handles a contact timeout.
-   *
-   * ContactService emits this event when the customer does not
-   * respond before the contact timer expires.
-   */
+  // ============================================================
+  // CONTACT TIMEOUT / NO ACK
+  // ============================================================
+
   @OnEvent(EVENTS.CONTACT_TIMEOUT)
-  async handleContactTimeout(payload: ContactOutcomePayload): Promise<void> {
-    const { ticketId, slotId } = payload;
-
-    const slot = await this.getSlot(slotId);
-
-    if (!slot) {
-      this.logger.warn(`[QueueService] CONTACT_TIMEOUT ignored. Slot ${slotId} does not exist.`);
-      return;
-    }
+  async handleContactTimeout(payload: ContactOutcomePayload) {
+    const slotId = payload.slotId;
 
     const rotation = this.rotations.get(slotId);
 
     if (!rotation) {
-      this.logger.warn(
-        `[QueueService] CONTACT_TIMEOUT ignored. No active rotation for slot ${slotId}.`,
-      );
+      this.logger.warn(`[Queue] No active rotation found for slot ${slotId}`);
+
       return;
     }
 
     const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
 
-    if (currentTicketId !== ticketId) {
-      this.logger.warn(
-        `[QueueService] CONTACT_TIMEOUT ignored. Ticket ${ticketId} is not the current candidate for slot ${slotId}. Current ticket: ${currentTicketId}`,
-      );
+    if (!currentTicketId) {
       return;
     }
-
-    const currentTicket = await this.getTicketById(ticketId);
-
-    if (!currentTicket) {
-      this.logger.warn(
-        `[QueueService] CONTACT_TIMEOUT ignored. Ticket ${ticketId} does not exist.`,
-      );
-      return;
-    }
-
-    this.logger.log(
-      `[Queue] Queue rotation timeout triggered: slotId ${slotId}, ticketId ${ticketId}, plate ${currentTicket.plate}, queueNumber ${currentTicket.queueNumber}`,
-      {
-        slotId,
-        ticketId,
-        plate: currentTicket.plate,
-        queueNumber: currentTicket.queueNumber,
-        previousAttempts: rotation.attempts,
-      },
-    );
-
-    currentTicket.status = 'WAITING';
-    this.emitStatusUpdated(currentTicket);
-
-    rotation.currentIndex = (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
-
-    if (rotation.attempts >= this.MAX_CONTACT_ATTEMPTS) {
-      rotation.attempts = 0;
-
-      this.logger.log(
-        `[QueueService] Maximum contact attempts reached. Starting a new contact cycle for slot ${slotId}`,
-      );
-    }
-
-    const nextTicket = await this.callNextCandidate(slotId);
-
-    this.logger.log(
-      `[Queue] Queue rotation advanced: slotId ${slotId}, timed-out ticket ${currentTicket.ticketId} (plate ${currentTicket.plate}), next candidate ticket ${nextTicket?.ticketId ?? 'none'}`,
-      {
-        slotId,
-        timedOutTicketId: currentTicket.ticketId,
-        timedOutPlate: currentTicket.plate,
-        nextTicketId: nextTicket?.ticketId ?? null,
-      },
-    );
-  }
-
-  /**
-   * Simulation endpoint helper.
-   *
-   * acknowledged=true simulates CONTACT_ACK.
-   * acknowledged=false simulates CONTACT_TIMEOUT.
-   */
-  async simulateAck(
-    slotId: string,
-    acknowledged: boolean,
-  ): Promise<{
-    slot: QueueSlot;
-    ticket?: QueueTicket;
-    nextTicket?: QueueTicket;
-    acknowledged: boolean;
-    attempts: number;
-  }> {
-    const slot = await this.getSlot(slotId);
-
-    if (!slot) {
-      throw new Error(`Slot ${slotId} does not exist`);
-    }
-
-    const rotation = this.rotations.get(slotId);
-
-    if (!rotation) {
-      throw new Error(`No active queue rotation for slot ${slotId}`);
-    }
-
-    const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
 
     const currentTicket = await this.getTicketById(currentTicketId);
 
     if (!currentTicket) {
-      throw new Error(`Current queue ticket ${currentTicketId} does not exist`);
+      return;
     }
 
-    const previousAttempts = rotation.attempts;
+    const attempts = this.contactAttempts.get(currentTicket.ticketId) ?? 0;
 
-    if (acknowledged) {
-      await this.handleContactAck({
-        ticketId: currentTicketId,
-        slotId,
-      });
+    // ========================================================
+    // CASE 1: MAX NO-ACK ATTEMPTS -> NO_SHOW
+    // ========================================================
+
+    if (attempts >= this.MAX_TICKET_CONTACT_ATTEMPTS) {
+      /**
+       * Customer becomes NO_SHOW.
+       *
+       * IMPORTANT:
+       *
+       * We DO NOT remove the ticket
+       * from this.tickets.
+       *
+       * We only remove it from the
+       * active rotation by rebuilding
+       * the rotation from WAITING tickets.
+       */
+      currentTicket.status = 'NO_SHOW';
+
+      this.emitStatusUpdated(currentTicket);
+
+      this.logger.log(
+        `[Queue] Ticket ${currentTicket.ticketId} ` +
+          `reached ${this.MAX_TICKET_CONTACT_ATTEMPTS} contact attempts. ` +
+          `Marked as NO_SHOW. ` +
+          `Ticket remains in queue history.`,
+      );
+
+      /**
+       * Contact attempts are no longer needed
+       * because this ticket is permanently inactive.
+       */
+      this.contactAttempts.delete(currentTicket.ticketId);
+
+      /**
+       * Rebuild the rotation from
+       * the current active WAITING queue.
+       *
+       * Example:
+       *
+       * A B C D E
+       *
+       * A -> NO_SHOW
+       *
+       * New active queue:
+       * B C D E
+       *
+       * New rotation:
+       * B C D
+       */
+      await this.rebuildRotationAfterRemoval(slotId, currentTicket.ticketId);
+
+      const updatedRotation = this.rotations.get(slotId);
+
+      if (!updatedRotation || updatedRotation.candidateTicketIds.length === 0) {
+        this.rotations.delete(slotId);
+
+        this.logger.log(`[Queue] No active waiting customers remain for slot ${slotId}.`);
+
+        return {
+          currentTicket,
+          nextTicket: undefined,
+          rotation: undefined,
+        };
+      }
+
+      /**
+       * Start the newly rebuilt rotation
+       * from its first candidate.
+       */
+      const nextTicket = await this.callNextCandidate(slotId);
 
       return {
-        slot,
-        ticket: currentTicket,
-        acknowledged: true,
-        attempts: previousAttempts,
+        currentTicket,
+        nextTicket,
+        rotation: updatedRotation,
       };
     }
 
-    await this.handleContactTimeout({
-      ticketId: currentTicketId,
-      slotId,
-    });
+    // ========================================================
+    // CASE 2: NO ACK BUT CUSTOMER STILL ACTIVE
+    // ========================================================
 
-    const updatedRotation = this.rotations.get(slotId);
+    /**
+     * Customer did NOT ACK,
+     * but still has remaining attempts.
+     *
+     * Return customer to WAITING.
+     *
+     * DO NOT rebuild the rotation.
+     *
+     * Example:
+     *
+     * A B C D E
+     *
+     * Rotation:
+     * A B C
+     *
+     * A -> NO ACK
+     * A becomes WAITING
+     *
+     * Next:
+     * B
+     *
+     * Rotation remains:
+     * A B C
+     *
+     * Cycle:
+     * A -> B -> C -> A -> B -> C
+     */
+    currentTicket.status = 'WAITING';
 
-    const nextTicketId = updatedRotation
-      ? updatedRotation.candidateTicketIds[updatedRotation.currentIndex]
-      : undefined;
+    this.emitStatusUpdated(currentTicket);
 
-    const nextTicket = nextTicketId ? await this.getTicketById(nextTicketId) : undefined;
+    rotation.currentIndex = (rotation.currentIndex + 1) % rotation.candidateTicketIds.length;
+
+    const nextTicket = await this.callNextCandidate(slotId);
 
     return {
-      slot,
-      ticket: currentTicket,
+      currentTicket,
       nextTicket,
+      rotation,
+    };
+  }
+
+  // ============================================================
+  // SIMULATION ENDPOINT HELPER
+  // ============================================================
+
+  async simulateAck(slotId: string, acknowledged: boolean) {
+    const rotation = this.rotations.get(slotId);
+
+    if (!rotation) {
+      throw new Error(`No active rotation for slot ${slotId}.`);
+    }
+
+    const currentTicketId = rotation.candidateTicketIds[rotation.currentIndex];
+
+    const currentTicket = currentTicketId ? await this.getTicketById(currentTicketId) : undefined;
+
+    if (!currentTicket) {
+      throw new Error(`Current rotation ticket not found.`);
+    }
+
+    if (acknowledged) {
+      const result = await this.handleContactAck({
+        slotId,
+        ticketId: currentTicket.ticketId,
+        acknowledged: true,
+      } as ContactOutcomePayload);
+
+      return {
+        acknowledged: true,
+        currentTicket: result,
+        nextTicket: undefined,
+        attempts: this.contactAttempts.get(currentTicket.ticketId) ?? 0,
+      };
+    }
+
+    const result = await this.handleContactTimeout({
+      slotId,
+      ticketId: currentTicket.ticketId,
       acknowledged: false,
-      attempts: updatedRotation?.attempts ?? 0,
+    } as ContactOutcomePayload);
+
+    return {
+      acknowledged: false,
+      currentTicket: result?.currentTicket,
+      nextTicket: result?.nextTicket,
+      attempts:
+        result?.currentTicket?.status === 'NO_SHOW'
+          ? this.MAX_TICKET_CONTACT_ATTEMPTS
+          : (this.contactAttempts.get(result?.currentTicket?.ticketId ?? currentTicket.ticketId) ??
+            0),
+      rotation: result?.rotation,
     };
   }
 }
