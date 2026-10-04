@@ -52,7 +52,7 @@ export interface AnalyticsData {
 }
 
 export type QueueTicketStatus =
-  'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED';
+  'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED'|'NO_SHOW';
 
   export interface QueueTicket {
   ticketId: string;

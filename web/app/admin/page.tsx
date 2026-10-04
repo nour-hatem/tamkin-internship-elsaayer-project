@@ -8,6 +8,8 @@ import type { Gate, QueueTicket } from "@/types/admin";
 import {
   subscribeToGateConnected,
   subscribeToGateDisconnected,
+  subscribeToQueueTicketAdded,
+  subscribeToQueueTicketStatusUpdated,
 } from "../../lib/socket";
 
 const API_URL =
@@ -17,6 +19,24 @@ interface QueueResponse {
   tickets: QueueTicket[];
 }
 
+function upsertTicket(
+  tickets: QueueTicket[],
+  incoming: QueueTicket
+): QueueTicket[] {
+  const index = tickets.findIndex(
+    (ticket) => ticket.ticketId === incoming.ticketId
+  );
+
+  if (index === -1) {
+    return [incoming, ...tickets];
+  }
+
+  const updated = [...tickets];
+  updated[index] = incoming;
+
+  return updated;
+}
+
 export default function AdminDashboard() {
   const [gates, setGates] = useState<Gate[]>([]);
   const [tickets, setTickets] = useState<QueueTicket[]>([]);
@@ -24,62 +44,137 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     async function fetchDashboardData(showLoading = true) {
-  try {
-    if (showLoading) {
-      setLoading(true);
+      try {
+        if (showLoading) {
+          setLoading(true);
+        }
+
+        setError(null);
+
+        const [gatesResponse, queueResponse] = await Promise.all([
+          fetch(`${API_URL}/admin/gates`),
+          fetch(`${API_URL}/admin/queue`),
+        ]);
+
+        if (!gatesResponse.ok || !queueResponse.ok) {
+          throw new Error("Failed to fetch dashboard data");
+        }
+
+        const gatesData = await gatesResponse.json();
+        const queueData: QueueResponse = await queueResponse.json();
+
+        if (!mounted) {
+          return;
+        }
+
+        const gatesList: Gate[] = Array.isArray(gatesData)
+          ? gatesData
+          : gatesData.gates || [];
+
+        setGates(gatesList);
+        setTickets(queueData.tickets ?? []);
+      } catch (err) {
+        if (!mounted) {
+          return;
+        }
+
+        console.error(err);
+        setError("Unable to load dashboard data.");
+      } finally {
+        if (mounted && showLoading) {
+          setLoading(false);
+        }
+      }
     }
-
-    setError(null);
-
-    const [gatesResponse, queueResponse] = await Promise.all([
-      fetch(`${API_URL}/admin/gates`),
-      fetch(`${API_URL}/admin/queue`),
-    ]);
-
-    if (!gatesResponse.ok || !queueResponse.ok) {
-      throw new Error("Failed to fetch dashboard data");
-    }
-
-    const gatesData = await gatesResponse.json();
-    const queueData: QueueResponse = await queueResponse.json();
-
-    const gatesList: Gate[] = Array.isArray(gatesData)
-      ? gatesData
-      : gatesData.gates || [];
-
-    setGates(gatesList);
-    setTickets(queueData.tickets);
-  } catch (err) {
-    console.error(err);
-    setError("Unable to load dashboard data.");
-  } finally {
-    if (showLoading) {
-      setLoading(false);
-    }
-  }
-}
 
     fetchDashboardData();
 
+    /*
+     * Gate events
+     */
+
     const unsubscribeConnected = subscribeToGateConnected(() => {
-      // Re-fetch so the dashboard keeps the complete Gate object
-      // (id, name, location, etc.) after a gate connects.
+      /*
+       * Re-fetch so the dashboard gets the complete Gate object
+       * after a gate connects.
+       */
       fetchDashboardData(false);
     });
 
-    const unsubscribeDisconnected = subscribeToGateDisconnected((payload) => {
-      // Remove the disconnected gate immediately.
-      setGates((prev) =>
-        prev.filter((gate) => gate.id !== payload.gateId)
+    const unsubscribeDisconnected = subscribeToGateDisconnected(
+      (payload) => {
+        /*
+         * Remove the disconnected gate immediately.
+         */
+        setGates((prev) =>
+          prev.filter((gate) => gate.id !== payload.gateId)
+        );
+      }
+    );
+
+    /*
+     * Queue ticket added event
+     *
+     * Same behavior as Queue Monitoring page.
+     */
+    const unsubscribeTicketAdded = subscribeToQueueTicketAdded(
+      ({ ticket }) => {
+        if (!ticket) {
+          return;
+        }
+
+        setTickets((previous) =>
+          upsertTicket(previous, ticket)
+        );
+      }
+    );
+
+    /*
+     * Queue ticket status updated event
+     *
+     * Same behavior as Queue Monitoring page.
+     */
+    const unsubscribeTicketStatusUpdated =
+      subscribeToQueueTicketStatusUpdated(
+        ({ ticketId, status }) => {
+          if (!ticketId || !status) {
+            return;
+          }
+
+          setTickets((previous) =>
+            previous.map((ticket) =>
+              ticket.ticketId === ticketId
+                ? {
+                    ...ticket,
+                    status: status as QueueTicket["status"],
+                  }
+                : ticket
+            )
+          );
+        }
       );
-    });
 
     return () => {
+      mounted = false;
+
       unsubscribeConnected();
       unsubscribeDisconnected();
+
+      unsubscribeTicketAdded();
+      unsubscribeTicketStatusUpdated();
     };
   }, []);
+
+  /*
+   * Queue statistics
+   *
+   * These use the same logic as the Queue Monitoring page.
+   */
+
+  const totalTickets = tickets.length;
 
   const waitingCustomers = tickets.filter(
     (ticket) => ticket.status === "WAITING"
@@ -93,10 +188,18 @@ export default function AdminDashboard() {
     (ticket) => ticket.status === "IN_SERVICE"
   ).length;
 
+  const noShowCustomers = tickets.filter(
+    (ticket) =>
+      ticket.status === "NO_SHOW" ||
+      ticket.status === "SKIPPED"
+  ).length;
+
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          Dashboard
+        </h1>
 
         <p className="mt-1 text-sm text-gray-500">
           Overview of the Toyota Smart Gate system.
@@ -105,7 +208,9 @@ export default function AdminDashboard() {
 
       {loading && (
         <div className="rounded-xl border border-gray-200 bg-white p-6">
-          <p className="text-sm text-gray-500">Loading dashboard...</p>
+          <p className="text-sm text-gray-500">
+            Loading dashboard...
+          </p>
         </div>
       )}
 
@@ -117,27 +222,41 @@ export default function AdminDashboard() {
 
       {!loading && !error && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {/* Queue Statistics */}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <StatCard
-              title="Waiting Customers"
+              title="Total Tickets"
+              value={totalTickets}
+            />
+
+            <StatCard
+              title="Waiting"
               value={waitingCustomers}
             />
 
             <StatCard
-              title="Called Customers"
+              title="Called"
               value={calledCustomers}
             />
 
             <StatCard
-              title="Currently In Service"
+              title="In Service"
               value={inService}
+            />
+
+            <StatCard
+              title="No Shows"
+              value={noShowCustomers}
             />
           </div>
 
+          {/* Connected Gates */}
           <section>
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold">Connected Gates</h2>
+                <h2 className="text-lg font-semibold">
+                  Connected Gates
+                </h2>
 
                 <p className="text-sm text-gray-500">
                   Monitor the current status of all gates.
@@ -157,9 +276,10 @@ export default function AdminDashboard() {
                 <p className="text-lg font-medium text-gray-900">
                   No gates currently connected
                 </p>
+
                 <p className="mt-2 text-sm text-gray-500">
-                  Gates appear here automatically when a kiosk socket joins a
-                  gate room.
+                  Gates appear here automatically when a kiosk socket
+                  joins a gate room.
                 </p>
               </div>
             ) : (
@@ -178,7 +298,9 @@ export default function AdminDashboard() {
                       className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-gray-300 hover:shadow-md"
                     >
                       <div>
-                        <h3 className="font-semibold">{gate.name}</h3>
+                        <h3 className="font-semibold">
+                          {gate.name}
+                        </h3>
 
                         <p className="mt-1 text-sm text-gray-500">
                           {gate.location}
@@ -186,7 +308,9 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="mt-5">
-                        <p className="text-sm text-gray-500">Waiting</p>
+                        <p className="text-sm text-gray-500">
+                          Waiting
+                        </p>
 
                         <p className="text-2xl font-semibold">
                           {waitingCount}
