@@ -16,4 +16,6 @@ export class LprController {
     const { plateNo, gateId } = body;
     return this.lprService.readFromLpr(plateNo , gateId );
   }
+  
 }
+

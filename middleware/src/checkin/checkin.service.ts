@@ -126,6 +126,16 @@ export class CheckInService {
 
     this.eventEmitter.emit(EVENTS.CHECKIN_COMPLETED, result);
 
+    if (request.source === 'QR') {
+      setTimeout(() => {
+        this.eventEmitter.emit(EVENTS.GATE_DISCONNECTED, {
+          gateId: request.gateId,
+          socketId: `qr-${request.gateId}`,
+          timestamp: new Date(),
+        });
+      }, 5000);
+    }
+
     return result;
   }
 }

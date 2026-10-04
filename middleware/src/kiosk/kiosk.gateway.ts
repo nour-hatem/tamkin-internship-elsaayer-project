@@ -107,7 +107,7 @@ export class KioskGateway
       `Client ${client.id} (${clientType}) joined room ${roomName}`,
     );
 
-    if (clientType === 'kiosk') {
+    if (clientType === 'kiosk' || clientType === 'qr') {
       this.gateKioskSockets.set(gateId, client.id);
 
       this.eventEmitter.emit(EVENTS.GATE_CONNECTED, {
