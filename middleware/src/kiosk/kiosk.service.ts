@@ -10,12 +10,20 @@ import { KioskGateway } from './kiosk.gateway';
 import { KioskStateEnum } from './enum/VoiceStateEnum';
 import { inputModeEnum } from './enum/InputModeEnum';
 
-import { ContactMethod, INluAdapter, ISttAdapter, ITtsAdapter } from 'src/ai';
+import {
+  ContactMethod,
+  INluAdapter,
+  ISttAdapter,
+  ITtsAdapter,
+  TTS_ADAPTER_TOKEN,
+  STT_ADAPTER_TOKEN,
+  NLU_ADAPTER_TOKEN,
+} from 'src/ai';
 
 import { KioskSession } from './interfaces/kiosk-session.interface';
 import { KioskInputDto } from './interfaces/KioskInputDto';
 import { ISapAdapter } from 'src/sap/ports/sap.port';
-import { IGateAdapter } from 'src/gate/ports/gate.port';
+import { GateService } from 'src/gate/gate.service';
 import { CheckInService } from 'src/checkin/checkin.service';
 import { KioskMessageKey, KioskRedisService } from './kiosk.redis';
 
@@ -30,14 +38,13 @@ export class KioskService {
     private readonly checkinService: CheckInService,
     @Inject(forwardRef(() => KioskGateway))
     private readonly kioskGateway: KioskGateway,
-    @Inject('ITtsAdapter')
+    @Inject(TTS_ADAPTER_TOKEN)
     private readonly ttsAdapter: ITtsAdapter,
-    @Inject('ISttAdapter')
+    @Inject(STT_ADAPTER_TOKEN)
     private readonly sttAdapter: ISttAdapter,
-    @Inject('INluAdapter')
+    @Inject(NLU_ADAPTER_TOKEN)
     private readonly nluAdapter: INluAdapter,
-    @Inject('IGateAdapter')
-    private readonly gateAdapter: IGateAdapter,
+    private readonly gateService: GateService,
     private readonly eventEmitter: EventEmitter2,
     private readonly kioskRedisService:KioskRedisService
   ) {}
@@ -80,6 +87,8 @@ export class KioskService {
       contactMethodRetries: 0,
 
       contactMethod: null,
+
+      IsToyotaCustomer:payload.found? true:false
     });
 
     this.logger.log(`[KioskService] Session created: ${session.sessionId}`);
@@ -353,6 +362,7 @@ export class KioskService {
         phone: session.phone,
         source: 'VOICE',
         preferredContactMethod: session.contactMethod,
+        IsToyotaCustomer:session.IsToyotaCustomer
       });
     } catch (error) {
       this.logger.error(`[KioskService] Failed to open gate ${session.gateId}`, error);

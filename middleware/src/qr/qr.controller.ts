@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { QrService } from './qr.service';
 import { QrCheckinDto } from './dto/qr-checkin.dto';
 
-@Controller('qr')
+@Controller(['qr', 'checkin'])
 export class QrController {
   constructor(private readonly qrService: QrService) {}
 
@@ -23,6 +23,7 @@ export class QrController {
 
   @Get('display/:gateId')
   async getDisplay(@Param('gateId') gateId: string) {
+    this.qrService.notifyGateConnected(gateId);
     const token = await this.qrService.getCurrentTicket(gateId);
 
     if (!token) {

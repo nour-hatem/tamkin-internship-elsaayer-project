@@ -7,4 +7,6 @@ export interface CheckInRequestDto {
   phone: string;
   source: 'QR' | 'VOICE';
   preferredContactMethod: ContactMethod;
+  isToyotaCustomer?: boolean;
+  IsToyotaCustomer?: boolean;
 }

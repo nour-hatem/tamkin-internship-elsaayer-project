@@ -12,6 +12,10 @@ import { CheckInModule } from './checkin/checkin.module';
 import { QrModule } from './qr/qr.module';
 import { KioskModule } from './kiosk/kiosk.module';
 import { AiModule } from './ai/ai.module';
+import { LoggerModule } from './common/logger/logger.module';
+import { AdminModule } from './admin/admin.module';
+import { InServiceModule } from './inService/inService.module';
+import { CheckoutModule } from './checkout/checkout.module';
 
 @Module({
   imports: [
@@ -38,6 +42,10 @@ import { AiModule } from './ai/ai.module';
     QrModule,
     KioskModule,
     AiModule,
+    LoggerModule,
+    AdminModule,
+    InServiceModule,
+    CheckoutModule
   ],
 })
 export class AppModule {}

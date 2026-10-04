@@ -27,6 +27,25 @@ export default function HomePage() {
             Open Developer Console &rarr;
           </Link>
         </div>
+
+        <div style={{ padding: '20px', background: '#fff', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+          <h2>Admin Dashboard</h2>
+          <p>Monitor connected gates in real time, view queue tickets, and track kiosk status across all gates.</p>
+          <Link
+            href="/admin"
+            style={{
+              display: 'inline-block',
+              padding: '10px 20px',
+              backgroundColor: '#1d4ed8',
+              color: '#fff',
+              textDecoration: 'none',
+              borderRadius: '4px',
+              fontWeight: 'bold',
+            }}
+          >
+            Open Admin Dashboard &rarr;
+          </Link>
+        </div>
       </div>
     </div>
   );

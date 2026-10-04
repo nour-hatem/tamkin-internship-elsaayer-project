@@ -28,6 +28,7 @@ type SendGreetingDTO = {
 };
 
 @WebSocketGateway({
+  namespace: '/kiosk',
   cors: {
     origin: '*',
   },
@@ -61,6 +62,12 @@ export class KioskGateway
     for (const [gateId, socketId] of this.gateKioskSockets.entries()) {
       if (socketId === client.id) {
         this.gateKioskSockets.delete(gateId);
+
+        this.eventEmitter.emit(EVENTS.GATE_DISCONNECTED, {
+          gateId,
+          socketId: client.id,
+          timestamp: new Date(),
+        });
 
         this.logger.log(
           `Unregistered kiosk socket ${client.id} for gate ${gateId}`,
@@ -100,8 +107,14 @@ export class KioskGateway
       `Client ${client.id} (${clientType}) joined room ${roomName}`,
     );
 
-    if (clientType === 'kiosk') {
+    if (clientType === 'kiosk' || clientType === 'qr') {
       this.gateKioskSockets.set(gateId, client.id);
+
+      this.eventEmitter.emit(EVENTS.GATE_CONNECTED, {
+        gateId,
+        socketId: client.id,
+        timestamp: new Date(),
+      });
 
       this.logger.log(
         `Registered kiosk socket ${client.id} for gate ${gateId}`,
@@ -191,6 +204,29 @@ export class KioskGateway
     );
 
     this.server.emit('gate.state', payload);
+  }
+
+  @OnEvent(EVENTS.GATE_CONNECTED)
+  handleGateConnectedBroadcast(payload: {
+    gateId: string;
+    socketId: string;
+    timestamp: Date;
+  }) {
+    this.server.emit('gate.connected', {
+      gateId: payload.gateId,
+      connectedAt: payload.timestamp.toISOString(),
+    });
+  }
+
+  @OnEvent(EVENTS.GATE_DISCONNECTED)
+  handleGateDisconnectedBroadcast(payload: {
+    gateId: string;
+    socketId: string;
+    timestamp: Date;
+  }) {
+    this.server.emit('gate.disconnected', {
+      gateId: payload.gateId,
+    });
   }
 
   @SubscribeMessage('INPUT')

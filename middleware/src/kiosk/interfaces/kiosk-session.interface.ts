@@ -12,6 +12,7 @@ export interface KioskSession {
   contactMethod?: ContactMethod | null;
   contactMethodRetries?: number;
   socketId?: string | null;
+  IsToyotaCustomer:boolean
 }
 
 export type CreateSessionDto = Omit<KioskSession, 'sessionId' | 'currentState'> & {

@@ -65,7 +65,7 @@ export class ContactService {
       ticketId,
       phone,
       name,
-      message: 'Your slot is available.',
+      message: `${slotId} is available.`,
     };
 
         // Send the simulated notification
@@ -157,6 +157,7 @@ private startAcknowledgmentTimeout(
 }
 
   private handleNoResponse({ticketId,slotId}:ContactOutcomePayload): void {
+    console.log(`Time is out for ${ticketId}`)
     const pending = this.pendingContacts.get(ticketId);
 
     if (!pending) {
