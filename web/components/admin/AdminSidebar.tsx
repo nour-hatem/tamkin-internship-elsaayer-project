@@ -9,6 +9,8 @@ import {
   Settings,
   X,
   DoorOpen,
+  Rows3,
+  UsersRound,
 } from "lucide-react";
 
 interface AdminSidebarProps {
@@ -27,11 +29,11 @@ const navigation = [
     href: "/admin/gates",
     icon: DoorOpen,
   },
-  // {
-  //   name: "Analytics",
-  //   href: "/admin/analytics",
-  //   icon: BarChart3,
-  // },
+  {
+    name: "Queue",
+    href: "/admin/queue",
+    icon: UsersRound,
+  },
   // {
   //   name: "Activity Logs",
   //   href: "/admin/activity",

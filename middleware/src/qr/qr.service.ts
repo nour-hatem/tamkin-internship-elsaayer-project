@@ -66,8 +66,8 @@ export class QrService {
       );
     }
 
-    this.logger.log(
-      `[QrService] Emitting ${EVENTS.CHECKIN_DISPLAY_UPDATED} for gate ${gateId}`,
+ this.logger.log(
+      `[QrService] Emitting ${EVENTS.CHECKIN_DISPLAY_UPDATED} and ${EVENTS.GATE_CONNECTED} for gate ${gateId}`,
     );
 
     this.eventEmitter.emit(
@@ -78,8 +78,17 @@ export class QrService {
       },
     );
 
+    this.eventEmitter.emit(
+      EVENTS.GATE_CONNECTED,
+      {
+        gateId,
+        socketId: `qr-${gateId}`,
+        timestamp: new Date(),
+      },
+    );
+
     this.logger.log(
-      `[QrService] Event ${EVENTS.CHECKIN_DISPLAY_UPDATED} emitted`,
+      `[QrService] Events ${EVENTS.CHECKIN_DISPLAY_UPDATED} and ${EVENTS.GATE_CONNECTED} emitted`,
     );
 
     const expiresIn = 180;
@@ -278,4 +287,16 @@ export class QrService {
       Date.now() + ttl * 1000,
     ).toISOString();
   }
+
+  notifyGateConnected(gateId: string): void {
+    this.eventEmitter.emit(
+      EVENTS.GATE_CONNECTED,
+      {
+        gateId,
+        socketId: `qr-${gateId}`,
+        timestamp: new Date(),
+      },
+    );
+  }
+
 }

@@ -10,7 +10,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { QueueTicket, QueueTicketStatus } from '../queue/queue.service';
+import { QueueSlotStatus, QueueTicket, QueueTicketStatus } from '../queue/queue.service';
 import { EVENTS } from '../common/events';
 
 @WebSocketGateway({
@@ -81,4 +81,25 @@ export class AdminGateway implements OnGatewayConnection, OnGatewayDisconnect {
       status: payload.status,
     });
   }
+
+  @OnEvent(EVENTS.SLOT_STATUS_UPDATED)
+  handleSlotStatusUpdated(payload:{
+    status:QueueSlotStatus
+  }){
+    this.logger.log(
+      `[AdminGateway] Broadcasting SLOT_STATUS_UPDATED to th server`,
+    );
+    this.server.emit('SLOT_STATUS_UPDATED',{
+      status:payload.status
+    })
+  }
+
+  @OnEvent(EVENTS.QUEUE_STATS_UPDATED)
+handleQueueStatsUpdated(payload: {
+  waiting: number;
+  called: number;
+  inService: number;
+}) {
+  this.server.emit("QUEUE_STATS_UPDATED", payload);
+}
 }

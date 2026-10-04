@@ -27,4 +27,15 @@ export class AdminController {
     const tickets = await this.adminService.getFullQueue();
     return { tickets };
   }
+
+   @Get('config')
+  async getConfig(){
+    return {
+  "strategy": process.env.QUEUE_ROTATION_STRATEGY,
+  "maxCandidates": process.env.QUEUE_MAX_CANDIDATES,
+  "contactTimeout": process.env.QUEUE_CONTACT_TIMEOUT,
+  "retryAttempts": process.env.QUEUE_RETRY_ATTEMPTS,
+  "contactMethod": process.env.QUEUE_CONTACT_METHOD
+}
+  }
 }

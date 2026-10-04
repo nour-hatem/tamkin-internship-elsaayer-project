@@ -83,4 +83,5 @@ export class AdminService {
   async getFullQueue(): Promise<QueueTicket[]> {
     return this.queueService.getAllTickets();
   }
+
 }

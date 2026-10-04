@@ -373,8 +373,12 @@ export class QueueService {
     if (slot.status === 'OCCUPIED') {
       throw new Error(`Slot ${slotId} is already occupied.`);
     }
-
+    
+     
     slot.status = 'AVAILABLE';
+    this.eventEmitter?.emit(EVENTS.SLOT_STATUS_UPDATED, {
+      status: slot.status,
+    });
 
     /**
      * Only WAITING tickets participate
@@ -612,6 +616,10 @@ export class QueueService {
     ticket.status = 'ACKNOWLEDGED';
 
     this.emitStatusUpdated(ticket);
+    
+    this.eventEmitter?.emit(EVENTS.TICKET_ACKNOWLEDGED, {
+  ticketId: ticket.ticketId,
+});
 
     const slot = await this.getSlot(slotId);
 
