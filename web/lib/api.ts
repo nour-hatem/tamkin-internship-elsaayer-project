@@ -1,4 +1,10 @@
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+const API_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+
+/* ============================================================
+ * LPR
+ * ============================================================
+ */
 
 export interface PlateReadRequest {
   plateNo: string;
@@ -11,11 +17,36 @@ export interface PlateReadResponse {
   timestamp?: string;
 }
 
-export type ContactMethod = 'SMS' | 'WHATSAPP' | 'ELSAAYER_APP' | 'CALLING_AGENT';
+/* ============================================================
+ * QUEUE / CHECK-IN
+ * ============================================================
+ */
+
+export type ContactMethod =
+  | 'SMS'
+  | 'WHATSAPP'
+  | 'ELSAAYER_APP'
+  | 'CALLING_AGENT';
 
 export type QueueTicketStatus =
-  'WAITING' | 'CALLED' | 'ACKNOWLEDGED' | 'IN_SERVICE' | 'COMPLETED' | 'SKIPPED' | 'NO_SHOW';
+  | 'WAITING'
+  | 'CALLED'
+  | 'ACKNOWLEDGED'
+  | 'IN_SERVICE'
+  | 'COMPLETED'
+  | 'SKIPPED'
+  | 'NO_SHOW';
 
+/**
+ * Check-in request sent to the backend.
+ *
+ * Both property names are supported for compatibility:
+ *
+ * isToyotaCustomer
+ * IsToyotaCustomer
+ *
+ * They should always contain the same boolean value.
+ */
 export interface CheckInRequest {
   gateId: string;
   plate: string;
@@ -23,6 +54,9 @@ export interface CheckInRequest {
   phone: string;
   source: 'QR' | 'VOICE';
   preferredContactMethod: ContactMethod;
+
+  isToyotaCustomer?: boolean;
+  IsToyotaCustomer?: boolean;
 }
 
 export interface CheckInResponse {
@@ -32,17 +66,11 @@ export interface CheckInResponse {
   reason?: string;
 }
 
-export interface HealthResponse {
-  status: string;
-  timestamp: string;
-  config: {
-    activeApproach: string;
-    adapters: Record<string, string>;
-  };
-}
-
 /**
  * Queue ticket returned by the Admin Queue API.
+ *
+ * Both property names are supported because the backend
+ * currently keeps compatibility with both naming styles.
  */
 export interface QueueTicket {
   ticketId: string;
@@ -53,10 +81,32 @@ export interface QueueTicket {
   phone: string;
   source: 'QR' | 'VOICE';
   preferredContactMethod: ContactMethod;
+
   isToyotaCustomer: boolean;
+  IsToyotaCustomer?: boolean;
+
   status: QueueTicketStatus;
   createdAt: string;
 }
+
+/* ============================================================
+ * HEALTH
+ * ============================================================
+ */
+
+export interface HealthResponse {
+  status: string;
+  timestamp: string;
+  config: {
+    activeApproach: string;
+    adapters: Record<string, string>;
+  };
+}
+
+/* ============================================================
+ * ADMIN
+ * ============================================================
+ */
 
 /**
  * Connected gate returned by the Admin Gates API.
@@ -70,7 +120,18 @@ export interface AdminGate {
   connectedAt: string;
 }
 
-export async function simulateLprRead(plateNo: string, gateId: string): Promise<PlateReadResponse> {
+/* ============================================================
+ * API FUNCTIONS
+ * ============================================================
+ */
+
+/**
+ * POST /lpr/simulate
+ */
+export async function simulateLprRead(
+  plateNo: string,
+  gateId: string,
+): Promise<PlateReadResponse> {
   const res = await fetch(`${API_URL}/lpr/simulate`, {
     method: 'POST',
     headers: {
@@ -83,13 +144,20 @@ export async function simulateLprRead(plateNo: string, gateId: string): Promise<
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to simulate LPR read: ${res.statusText}`);
+    throw new Error(
+      `Failed to simulate LPR read: ${res.statusText}`,
+    );
   }
 
   return res.json();
 }
 
-export async function submitCheckIn(data: CheckInRequest): Promise<CheckInResponse> {
+/**
+ * POST /checkin/submit
+ */
+export async function submitCheckIn(
+  data: CheckInRequest,
+): Promise<CheckInResponse> {
   const res = await fetch(`${API_URL}/checkin/submit`, {
     method: 'POST',
     headers: {
@@ -99,27 +167,43 @@ export async function submitCheckIn(data: CheckInRequest): Promise<CheckInRespon
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to submit check-in: ${res.statusText}`);
+    throw new Error(
+      `Failed to submit check-in: ${res.statusText}`,
+    );
   }
 
   return res.json();
 }
 
+/**
+ * GET /health
+ */
 export async function getHealth(): Promise<HealthResponse> {
   const res = await fetch(`${API_URL}/health`);
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch health: ${res.statusText}`);
+    throw new Error(
+      `Failed to fetch health: ${res.statusText}`,
+    );
   }
 
   return res.json();
 }
 
-export async function getTicketStatus(ticketId: string): Promise<any> {
-  const res = await fetch(`${API_URL}/qr/ticket/${ticketId}`);
+/**
+ * GET /qr/ticket/:ticketId
+ */
+export async function getTicketStatus(
+  ticketId: string,
+): Promise<any> {
+  const res = await fetch(
+    `${API_URL}/qr/ticket/${ticketId}`,
+  );
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch ticket: ${res.statusText}`);
+    throw new Error(
+      `Failed to fetch ticket: ${res.statusText}`,
+    );
   }
 
   return res.json();
@@ -143,7 +227,9 @@ export async function getAdminQueue(): Promise<{
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch admin queue: ${res.statusText}`);
+    throw new Error(
+      `Failed to fetch admin queue: ${res.statusText}`,
+    );
   }
 
   return res.json();
@@ -162,7 +248,9 @@ export async function getAdminGates(): Promise<{
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch admin gates: ${res.statusText}`);
+    throw new Error(
+      `Failed to fetch admin gates: ${res.statusText}`,
+    );
   }
 
   return res.json();

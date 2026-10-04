@@ -1,10 +1,13 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-
 import { submitCheckIn } from '../../lib/api';
 
-type ContactMethod = 'SMS' | 'WHATSAPP' | 'ELSAAYER_APP' | 'CALLING_AGENT';
+type ContactMethod =
+  | 'SMS'
+  | 'WHATSAPP'
+  | 'ELSAAYER_APP'
+  | 'CALLING_AGENT';
 
 type TicketData = {
   gateId: string;
@@ -13,7 +16,6 @@ type TicketData = {
   name?: string;
   phone?: string;
   source: 'GENERIC' | 'LPR' | 'SAP';
-  contactMethod:ContactMethod
 };
 
 type CheckinFormProps = {
@@ -21,15 +23,20 @@ type CheckinFormProps = {
   gateId: string;
 };
 
-export default function CheckinForm({ token, gateId }: CheckinFormProps) {
+export default function CheckinForm({
+  token,
+  gateId,
+}: CheckinFormProps) {
   const [plate, setPlate] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
 
-  const [preferredContactMethod, setPreferredContactMethod] = useState<ContactMethod | ''>('');
+  const [preferredContactMethod, setPreferredContactMethod] =
+    useState<ContactMethod | ''>('');
 
   const [plateLocked, setPlateLocked] = useState(false);
-  const [source, setSource] = useState<TicketData['source']>('GENERIC');
+  const [source, setSource] =
+    useState<TicketData['source']>('GENERIC');
   const [fallbackMode, setFallbackMode] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
@@ -50,10 +57,14 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
 
         if (response.status === 410) {
           try {
-            const displayResponse = await fetch(`${apiUrl}/qr/display/${gateId}`);
+            const displayResponse = await fetch(
+              `${apiUrl}/qr/display/${gateId}`,
+            );
 
             if (!displayResponse.ok) {
-              throw new Error('Unable to load check-in information.');
+              throw new Error(
+                'Unable to load check-in information.',
+              );
             }
 
             const display = await displayResponse.json();
@@ -66,7 +77,9 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
             setSource('GENERIC');
             setEditMode(false);
             setFallbackMode(true);
-            setMessage('Your QR ticket has expired. Please complete the check-in manually.');
+            setMessage(
+              'Your QR ticket has expired. Please complete the check-in manually.',
+            );
           } catch {
             setFallbackMode(false);
             setMessage(
@@ -78,7 +91,8 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
         }
 
         if (!response.ok) {
-          let errorMessage = 'Unable to load check-in information.';
+          let errorMessage =
+            'Unable to load check-in information.';
 
           try {
             const data = await response.json();
@@ -95,6 +109,7 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
 
         const ticket: TicketData = await response.json();
 
+        // Keep the original SAP auto-fill behavior.
         setPlate(ticket.plate ?? '');
         setName(ticket.name ?? '');
         setPhone(ticket.phone ?? '');
@@ -106,7 +121,11 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
         setMessage('');
       } catch (error) {
         setFallbackMode(false);
-        setMessage(error instanceof Error ? error.message : 'Unable to load check-in information.');
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : 'Unable to load check-in information.',
+        );
       } finally {
         setLoadingTicket(false);
       }
@@ -115,11 +134,15 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
     loadTicket();
   }, [token, gateId]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
     if (!preferredContactMethod) {
-      setMessage('Please select how you would like to be contacted when your slot is available.');
+      setMessage(
+        'Please select how you would like to be contacted when your slot is available.',
+      );
       return;
     }
 
@@ -135,6 +158,10 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
           phone,
           source: 'QR',
           preferredContactMethod,
+
+          // Added only for Toyota customer compatibility.
+          isToyotaCustomer: isSapHit,
+          IsToyotaCustomer: isSapHit,
         });
 
         setTicketId(data.queueEntryId ?? '');
@@ -154,17 +181,25 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
           name,
           phone,
           preferredContactMethod,
+
+          // Added only for Toyota customer compatibility.
+          isToyotaCustomer: isSapHit,
+          IsToyotaCustomer: isSapHit,
         }),
       });
 
       const data = await response.json();
 
       if (response.status === 409) {
-        throw new Error('This vehicle is already waiting in the queue.');
+        throw new Error(
+          'This vehicle is already waiting in the queue.',
+        );
       }
 
       if (response.status === 410) {
-        throw new Error('This QR code has expired or has already been used.');
+        throw new Error(
+          'This QR code has expired or has already been used.',
+        );
       }
 
       if (!response.ok) {
@@ -173,7 +208,11 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
 
       setTicketId(data.queueEntryId);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Something went wrong.');
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Something went wrong.',
+      );
     } finally {
       setLoading(false);
     }
@@ -273,7 +312,8 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
             textAlign: 'center',
           }}
         >
-          Your QR ticket has expired. You can still complete your check-in below.
+          Your QR ticket has expired. You can still complete your
+          check-in below.
         </div>
       )}
 
@@ -370,7 +410,8 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
             border: '1px solid #ddd',
             borderRadius: '10px',
             fontSize: '15px',
-            backgroundColor: isSapHit && !editMode ? '#f3f3f3' : '#fff',
+            backgroundColor:
+              isSapHit && !editMode ? '#f3f3f3' : '#fff',
           }}
         />
       </div>
@@ -404,7 +445,8 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
             border: '1px solid #ddd',
             borderRadius: '10px',
             fontSize: '15px',
-            backgroundColor: isSapHit && !editMode ? '#f3f3f3' : '#fff',
+            backgroundColor:
+              isSapHit && !editMode ? '#f3f3f3' : '#fff',
           }}
         />
       </div>
@@ -426,7 +468,11 @@ export default function CheckinForm({ token, gateId }: CheckinFormProps) {
         <select
           id="preferredContactMethod"
           value={preferredContactMethod}
-          onChange={(event) => setPreferredContactMethod(event.target.value as ContactMethod)}
+          onChange={(event) =>
+            setPreferredContactMethod(
+              event.target.value as ContactMethod,
+            )
+          }
           required
           style={{
             width: '100%',
