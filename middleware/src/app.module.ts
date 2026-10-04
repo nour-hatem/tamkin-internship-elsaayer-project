@@ -15,6 +15,7 @@ import { AiModule } from './ai/ai.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { AdminModule } from './admin/admin.module';
 import { InServiceModule } from './inService/inService.module';
+import { CheckoutModule } from './checkout/checkout.module';
 
 @Module({
   imports: [
@@ -43,7 +44,8 @@ import { InServiceModule } from './inService/inService.module';
     AiModule,
     LoggerModule,
     AdminModule,
-    InServiceModule
+    InServiceModule,
+    CheckoutModule
   ],
 })
 export class AppModule {}
