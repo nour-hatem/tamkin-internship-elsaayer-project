@@ -14,6 +14,7 @@ import { KioskModule } from './kiosk/kiosk.module';
 import { AiModule } from './ai/ai.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { AdminModule } from './admin/admin.module';
+import { InServiceModule } from './inService/inService.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { AdminModule } from './admin/admin.module';
     AiModule,
     LoggerModule,
     AdminModule,
+    InServiceModule
   ],
 })
 export class AppModule {}

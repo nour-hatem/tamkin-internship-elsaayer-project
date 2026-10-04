@@ -616,6 +616,10 @@ export class QueueService {
     ticket.status = 'ACKNOWLEDGED';
 
     this.emitStatusUpdated(ticket);
+    
+    this.eventEmitter?.emit(EVENTS.TICKET_ACKNOWLEDGED, {
+  ticketId: ticket.ticketId,
+});
 
     const slot = await this.getSlot(slotId);
 

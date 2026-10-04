@@ -22,7 +22,9 @@ export const EVENTS = {
 
   SLOT_STATUS_UPDATED:'slot.status.updated',
 
-  QUEUE_STATS_UPDATED:'queue.stats.updated'
+  QUEUE_STATS_UPDATED:'queue.stats.updated',
+  TICKET_ACKNOWLEDGED:'ticket.acknowledged'
+
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];

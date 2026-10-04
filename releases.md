@@ -1,5 +1,25 @@
 # Releases
 
+## [2026-10-04] feat(queue): add in-service flow
+
+**By:** Sara
+
+### Changes
+
+* Added event-driven flow for acknowledged tickets.
+* Added `TICKET_ACKNOWLEDGED` event.
+* Added `InServiceService` and `InServiceAdapter`.
+* Added 15-second simulation before starting service.
+* `ACKNOWLEDGED` tickets are automatically changed to `IN_SERVICE`.
+* Reused `QueueService.updateTicketStatus()` to trigger the existing real-time status update.
+
+### In-Service
+
+* Added adapter-based structure for future real service integration.
+* `InServiceService` listens for `TICKET_ACKNOWLEDGED`.
+* `InServiceAdapter` handles the simulated service-start delay.
+
+
 ## [2026-10-01] feat(admin): replace mock data with API & real-time queue updates
 
 **By:** Sara
