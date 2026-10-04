@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 
 import StatCard from "@/components/admin/StatCard";
 import type { Gate, QueueTicket } from "@/types/admin";
+
 import {
+  joinAdminGateRoom,
   subscribeToGateConnected,
   subscribeToGateDisconnected,
   subscribeToQueueTicketAdded,
@@ -40,6 +42,7 @@ function upsertTicket(
 export default function AdminDashboard() {
   const [gates, setGates] = useState<Gate[]>([]);
   const [tickets, setTickets] = useState<QueueTicket[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,14 +77,40 @@ export default function AdminDashboard() {
           ? gatesData
           : gatesData.gates || [];
 
+        const ticketsList = queueData.tickets ?? [];
+
         setGates(gatesList);
-        setTickets(queueData.tickets ?? []);
+        setTickets(ticketsList);
+
+        /*
+         * Join rooms for currently connected gates.
+         */
+        gatesList.forEach((gate) => {
+          const gateId =  gate.id;
+
+          if (gateId) {
+            joinAdminGateRoom(gateId);
+          }
+        });
+
+        /*
+         * Also join rooms represented by existing tickets.
+         *
+         * A gate may not currently be connected,
+         * but its tickets can still exist in the queue.
+         */
+        ticketsList.forEach((ticket) => {
+          if (ticket.gateId) {
+            joinAdminGateRoom(ticket.gateId);
+          }
+        });
       } catch (err) {
         if (!mounted) {
           return;
         }
 
         console.error(err);
+
         setError("Unable to load dashboard data.");
       } finally {
         if (mounted && showLoading) {
@@ -90,52 +119,73 @@ export default function AdminDashboard() {
       }
     }
 
+    /*
+     * Initial dashboard data.
+     */
     fetchDashboardData();
 
     /*
-     * Gate events
+     * Gate connected
+     *
+     * Re-fetch so the dashboard gets the complete
+     * Gate object after a gate connects.
      */
-
     const unsubscribeConnected = subscribeToGateConnected(() => {
-      /*
-       * Re-fetch so the dashboard gets the complete Gate object
-       * after a gate connects.
-       */
       fetchDashboardData(false);
     });
 
+    /*
+     * Gate disconnected
+     *
+     * Remove the disconnected gate immediately.
+     */
     const unsubscribeDisconnected = subscribeToGateDisconnected(
       (payload) => {
-        /*
-         * Remove the disconnected gate immediately.
-         */
-        setGates((prev) =>
-          prev.filter((gate) => gate.id !== payload.gateId)
+        setGates((previous) =>
+          previous.filter((gate) => gate.id !== payload.gateId)
         );
       }
     );
 
     /*
-     * Queue ticket added event
+     * New queue ticket
      *
-     * Same behavior as Queue Monitoring page.
+     * Add the ticket immediately and make sure
+     * we are subscribed to its gate room.
      */
-    const unsubscribeTicketAdded = subscribeToQueueTicketAdded(
-      ({ ticket }) => {
+    const unsubscribeTicketAdded =
+      subscribeToQueueTicketAdded(({ ticket }) => {
         if (!ticket) {
           return;
         }
 
+        /*
+         * Join the gate room associated with this ticket.
+         */
+        if (ticket.gateId) {
+          joinAdminGateRoom(ticket.gateId);
+        }
+
+        /*
+         * Update tickets.
+         *
+         * The dashboard counters are calculated from
+         * this state, so they update automatically.
+         */
         setTickets((previous) =>
           upsertTicket(previous, ticket)
         );
-      }
-    );
+      });
 
     /*
-     * Queue ticket status updated event
+     * Queue ticket status updated
      *
-     * Same behavior as Queue Monitoring page.
+     * Example:
+     *
+     * WAITING -> CALLED
+     *
+     * The ticket state changes and React automatically
+     * recalculates the dashboard statistics.
      */
     const unsubscribeTicketStatusUpdated =
       subscribeToQueueTicketStatusUpdated(
@@ -171,9 +221,9 @@ export default function AdminDashboard() {
   /*
    * Queue statistics
    *
-   * These use the same logic as the Queue Monitoring page.
+   * These are calculated directly from the current
+   * real-time tickets state.
    */
-
   const totalTickets = tickets.length;
 
   const waitingCustomers = tickets.filter(
@@ -216,7 +266,9 @@ export default function AdminDashboard() {
 
       {!loading && error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-6">
-          <p className="text-sm text-red-700">{error}</p>
+          <p className="text-sm text-red-700">
+            {error}
+          </p>
         </div>
       )}
 
@@ -278,23 +330,25 @@ export default function AdminDashboard() {
                 </p>
 
                 <p className="mt-2 text-sm text-gray-500">
-                  Gates appear here automatically when a kiosk socket
-                  joins a gate room.
+                  Gates appear here automatically when a kiosk
+                  socket joins a gate room.
                 </p>
               </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {gates.map((gate) => {
+                  const gateId = gate.gateId || gate.id;
+
                   const waitingCount = tickets.filter(
                     (ticket) =>
-                      ticket.gateId === gate.id &&
+                      ticket.gateId === gateId &&
                       ticket.status === "WAITING"
                   ).length;
 
                   return (
                     <Link
-                      key={gate.id}
-                      href={`/admin/gates/${gate.id}`}
+                      key={gateId}
+                      href={`/admin/gates/${gateId}`}
                       className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-gray-300 hover:shadow-md"
                     >
                       <div>
